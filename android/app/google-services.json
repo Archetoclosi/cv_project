@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "447290665864",
+    "project_id": "pingcv",
+    "storage_bucket": "pingcv.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:447290665864:android:092edb0412b43b73e4e83d",
+        "android_client_info": {
+          "package_name": "com.example.prova"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBywsF3hqGFWH8odIv7tNx6OO04Z_-bsac"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
