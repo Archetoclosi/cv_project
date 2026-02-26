@@ -289,6 +289,7 @@ class _ChatScreenState extends State<ChatScreen> {
               child: TextField(
                 controller: _controller,
                 style: const TextStyle(color: Colors.white),
+                textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
                   hintText: 'Type here...',
                   hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3)),
@@ -326,7 +327,7 @@ class FullScreenImage extends StatelessWidget {
       body: InteractiveViewer(
         panEnabled: true,
         boundaryMargin: const EdgeInsets.all(double.infinity),
-        minScale: 0.5,
+        minScale: 1.0,
         maxScale: 4.0,
         child: Center(
           child: Image.network(imageUrl),
