@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/chat_service.dart';
@@ -27,6 +28,26 @@ class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   bool _isUploadingImage = false;
   final String _myId = AuthService().currentUser?.uid ?? 'anonimo';
+  StreamSubscription<int>? _unreadSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _chatService.markAsRead(widget.chatId, _myId);
+    _unreadSub = _chatService
+        .getUnreadCount(widget.chatId, _myId)
+        .listen((count) {
+      if (count > 0) {
+        _chatService.markAsRead(widget.chatId, _myId);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _unreadSub?.cancel();
+    super.dispose();
+  }
 
   void _sendMessage() {
     final text = _controller.text.trim();
@@ -56,10 +77,17 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  String _formatTime24Hour(DateTime dateTime) {
+    final hour = dateTime.hour.toString().padLeft(2, '0');
+    final minute = dateTime.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
+      resizeToAvoidBottomInset: true,
       body: Container(
         decoration: const BoxDecoration(
           image: DecorationImage(
@@ -83,7 +111,9 @@ class _ChatScreenState extends State<ChatScreen> {
                     return Center(
                       child: Text(
                         'Nessun messaggio',
-                        style: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.5),
+                        ),
                       ),
                     );
                   }
@@ -92,23 +122,62 @@ class _ChatScreenState extends State<ChatScreen> {
 
                   return ListView.builder(
                     controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     itemCount: messages.length,
                     itemBuilder: (context, index) {
-                      final data = messages[index].data() as Map<String, dynamic>;
+                      final data =
+                          messages[index].data() as Map<String, dynamic>;
                       final isMe = data['senderId'] == _myId;
                       final type = data['type'] as String? ?? 'text';
                       final timestamp = data['timestamp'] as Timestamp?;
                       final time = timestamp != null
-                          ? TimeOfDay.fromDateTime(timestamp.toDate()).format(context)
+                          ? _formatTime24Hour(timestamp.toDate())
                           : '';
 
-                      return _buildMessageBubble(
-                        context: context,
-                        data: data,
-                        isMe: isMe,
-                        type: type,
-                        time: time,
+                      const showTimestamp = true;
+
+                      Widget? dateSeparator;
+                      if (timestamp != null) {
+                        final messageDate = timestamp.toDate();
+                        bool showSeparator = false;
+                        if (index == 0) {
+                          showSeparator = true;
+                        } else {
+                          final prevData =
+                              messages[index - 1].data() as Map<String, dynamic>;
+                          final prevTimestamp =
+                              prevData['timestamp'] as Timestamp?;
+                          if (prevTimestamp != null) {
+                            final prevDate = prevTimestamp.toDate();
+                            if (DateTime(messageDate.year, messageDate.month,
+                                    messageDate.day) !=
+                                DateTime(prevDate.year, prevDate.month,
+                                    prevDate.day)) {
+                              showSeparator = true;
+                            }
+                          }
+                        }
+                        if (showSeparator) {
+                          dateSeparator = _buildDateSeparator(messageDate);
+                        }
+                      }
+
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (dateSeparator != null) dateSeparator,
+                          _buildMessageBubble(
+                            context: context,
+                            data: data,
+                            isMe: isMe,
+                            type: type,
+                            time: time,
+                            showTimestamp: showTimestamp,
+                          ),
+                        ],
                       );
                     },
                   );
@@ -120,7 +189,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 backgroundColor: Colors.white.withValues(alpha: 0.1),
                 color: AppColors.primary,
               ),
-            _buildInputBar(),
+            SafeArea(top: false, child: _buildInputBar()),
           ],
         ),
       ),
@@ -142,7 +211,10 @@ class _ChatScreenState extends State<ChatScreen> {
               radius: 20,
               child: Text(
                 widget.contactName[0].toUpperCase(),
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             const SizedBox(width: 10),
@@ -178,17 +250,71 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  String _formatDateLabel(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final dateOnly = DateTime(date.year, date.month, date.day);
+
+    if (dateOnly == today) {
+      return 'Today';
+    } else if (dateOnly == yesterday) {
+      return 'Yesterday';
+    } else {
+      final day = date.day.toString().padLeft(2, '0');
+      final month = date.month.toString().padLeft(2, '0');
+      final year = date.year.toString();
+      return '$day/$month/$year';
+    }
+  }
+
+  Widget _buildDateSeparator(DateTime date) {
+    final label = _formatDateLabel(date);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Divider(
+              color: Colors.white.withValues(alpha: 0.15),
+              thickness: 1,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.white.withValues(alpha: 0.4),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Divider(
+              color: Colors.white.withValues(alpha: 0.15),
+              thickness: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMessageBubble({
     required BuildContext context,
     required Map<String, dynamic> data,
     required bool isMe,
     required String type,
     required String time,
+    required bool showTimestamp,
   }) {
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
-        crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: isMe
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         children: [
           Container(
             margin: const EdgeInsets.symmetric(vertical: 4),
@@ -202,8 +328,8 @@ class _ChatScreenState extends State<ChatScreen> {
               color: type == 'image'
                   ? Colors.transparent
                   : isMe
-                      ? AppColors.primary
-                      : Colors.white.withValues(alpha: 0.1),
+                  ? AppColors.primary
+                  : Colors.white.withValues(alpha: 0.1),
               borderRadius: BorderRadius.only(
                 topLeft: const Radius.circular(18),
                 topRight: const Radius.circular(18),
@@ -212,53 +338,92 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
             child: type == 'image'
-                ? GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => FullScreenImage(
-                            imageUrl: data['imageUrl'] as String,
+                ? Stack(
+                    alignment: Alignment.bottomRight,
+                    children: [
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => FullScreenImage(
+                                imageUrl: data['imageUrl'] as String,
+                              ),
+                            ),
+                          );
+                        },
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(18),
+                          child: Image.network(
+                            data['imageUrl'] as String,
+                            width: 200,
+                            fit: BoxFit.cover,
                           ),
                         ),
-                      );
-                    },
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(18),
-                      child: Image.network(
-                        data['imageUrl'] as String,
-                        width: 200,
-                        fit: BoxFit.cover,
                       ),
-                    ),
+                      if (showTimestamp && time.isNotEmpty)
+                        Positioned(
+                          bottom: 6,
+                          right: 8,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.45),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  time,
+                                  style: const TextStyle(
+                                      fontSize: 10, color: Colors.white),
+                                ),
+                                if (isMe) ...[
+                                  const SizedBox(width: 3),
+                                  const Icon(Icons.done_all,
+                                      size: 12, color: Colors.white),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
                   )
-                : Text(
-                    data['text'] as String,
-                    style: const TextStyle(color: Colors.white, fontSize: 15),
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        data['text'] as String,
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 15),
+                      ),
+                      const SizedBox(height: 2),
+                      if (showTimestamp && time.isNotEmpty)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              time,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.white.withValues(alpha: 0.55),
+                              ),
+                            ),
+                            if (isMe) ...[
+                              const SizedBox(width: 3),
+                              Icon(
+                                Icons.done_all,
+                                size: 12,
+                                color: Colors.white.withValues(alpha: 0.55),
+                              ),
+                            ],
+                          ],
+                        ),
+                    ],
                   ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  time,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.white.withValues(alpha: 0.4),
-                  ),
-                ),
-                if (isMe) ...[
-                  const SizedBox(width: 4),
-                  Icon(
-                    Icons.done_all,
-                    size: 14,
-                    color: Colors.white.withValues(alpha: 0.4),
-                  ),
-                ],
-              ],
-            ),
           ),
         ],
       ),
@@ -277,9 +442,13 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Row(
         children: [
           IconButton(
-            icon: Icon(Icons.attach_file, color: Colors.white.withValues(alpha: 0.6)),
+            icon: Icon(
+              Icons.attach_file,
+              color: Colors.white.withValues(alpha: 0.6),
+            ),
             onPressed: _sendImage,
-          ),const SizedBox(width: 8),
+          ),
+          const SizedBox(width: 8),
           Expanded(
             child: Container(
               decoration: BoxDecoration(
@@ -292,9 +461,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
                   hintText: 'Type here...',
-                  hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3)),
+                  hintStyle: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.3),
+                  ),
                   border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                 ),
                 onSubmitted: (_) => _sendMessage(),
               ),
@@ -303,7 +477,9 @@ class _ChatScreenState extends State<ChatScreen> {
           const SizedBox(width: 8),
           IconButton(
             icon: Icon(Icons.send, color: Colors.white.withValues(alpha: 0.6)),
-            onPressed: () {(_) => _sendMessage();},
+            onPressed: () {
+              (_) => _sendMessage();
+            },
           ),
         ],
       ),
@@ -329,9 +505,7 @@ class FullScreenImage extends StatelessWidget {
         boundaryMargin: const EdgeInsets.all(double.infinity),
         minScale: 1.0,
         maxScale: 4.0,
-        child: Center(
-          child: Image.network(imageUrl),
-        ),
+        child: Center(child: Image.network(imageUrl)),
       ),
     );
   }
