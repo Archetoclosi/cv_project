@@ -303,7 +303,7 @@ class _ChatScreenState extends State<ChatScreen> {
           const SizedBox(width: 8),
           IconButton(
             icon: Icon(Icons.send, color: Colors.white.withValues(alpha: 0.6)),
-            onPressed: () {},
+            onPressed: () {(_) => _sendMessage();},
           ),
         ],
       ),
