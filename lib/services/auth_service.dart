@@ -1,12 +1,32 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_app_badger/flutter_app_badger.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
+  static const String _rememberMeKey = 'remember_me';
+
   User? get currentUser => _auth.currentUser;
+
+  // Persistent login preference
+  Future<void> saveRememberMe() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_rememberMeKey, true);
+  }
+
+  Future<void> clearRememberMe() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_rememberMeKey);
+  }
+
+  Future<bool> isRemembered() async {
+    final prefs = await SharedPreferences.getInstance();
+    final flag = prefs.getBool(_rememberMeKey) ?? false;
+    return flag && currentUser != null;
+  }
 
   // Registrazione con email, password e nickname
   Future<void> register(String email, String password, String nickname) async {
@@ -40,6 +60,7 @@ class AuthService {
           .doc(uid)
           .set({'fcmToken': ''}, SetOptions(merge: true));
     }
+    await clearRememberMe();
     await FlutterAppBadger.removeBadge();
     await _auth.signOut();
   }

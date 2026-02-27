@@ -18,7 +18,26 @@ class _AuthScreenState extends State<AuthScreen> {
 
   bool _isLogin = false;
   bool _isLoading = false;
+  bool _rememberMe = false;
+  bool _checkingSession = true;
   String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAutoLogin();
+  }
+
+  Future<void> _checkAutoLogin() async {
+    final remembered = await _authService.isRemembered();
+    if (remembered && mounted) {
+      Navigator.pushReplacementNamed(context, '/chats');
+      return;
+    }
+    if (mounted) {
+      setState(() => _checkingSession = false);
+    }
+  }
 
   void _submit() async {
     setState(() {
@@ -32,12 +51,16 @@ class _AuthScreenState extends State<AuthScreen> {
           _emailController.text.trim(),
           _passwordController.text.trim(),
         );
+        if (_rememberMe) {
+          await _authService.saveRememberMe();
+        }
       } else {
         await _authService.register(
           _emailController.text.trim(),
           _passwordController.text.trim(),
           _nicknameController.text.trim(),
         );
+        await _authService.saveRememberMe();
       }
 
       if (mounted) {
@@ -56,8 +79,25 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_checkingSession) {
+      return Scaffold(
+        resizeToAvoidBottomInset: false,
+        body: Container(
+          decoration: const BoxDecoration(
+            image: DecorationImage(
+              image: AssetImage('assets/background/bgdark.png'),
+              fit: BoxFit.fitWidth,
+            ),
+          ),
+          child: const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
-      
+      resizeToAvoidBottomInset: false,
       body: Container(
       decoration: BoxDecoration(
         image: DecorationImage(
@@ -128,6 +168,24 @@ class _AuthScreenState extends State<AuthScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
+
+                      if (_isLogin)
+                        Row(
+                          children: [
+                            Checkbox(
+                              value: _rememberMe,
+                              onChanged: (val) =>
+                                  setState(() => _rememberMe = val ?? false),
+                              activeColor: const Color(0xFFB77EF1),
+                              checkColor: Colors.white,
+                              side: const BorderSide(color: Colors.white54),
+                            ),
+                            const Text(
+                              'Ricordami',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          ],
+                        ),
 
                       if (_errorMessage != null)
                         Text(_errorMessage!, style: const TextStyle(color: Colors.red)),

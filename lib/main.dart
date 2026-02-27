@@ -105,6 +105,11 @@ class _MyAppState extends State<MyApp> {
         ),
         useMaterial3: true,
       ),
+      builder: (context, child) => GestureDetector(
+        onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+        behavior: HitTestBehavior.translucent,
+        child: child!,
+      ),
       initialRoute: '/',
       routes: {
         '/': (context) => const AuthScreen(),

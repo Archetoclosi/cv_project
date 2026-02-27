@@ -5,6 +5,7 @@ import '../services/chat_service.dart';
 import '../services/auth_service.dart';
 import 'package:image_picker/image_picker.dart';
 import '../theme/app_colors.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 class ChatScreen extends StatefulWidget {
   final String contactName;
@@ -25,14 +26,17 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final ChatService _chatService = ChatService();
-  final ScrollController _scrollController = ScrollController();
+  final ItemScrollController _itemScrollController = ItemScrollController();
+  int _lastKnownMessageCount = 0;
   bool _isUploadingImage = false;
   final String _myId = AuthService().currentUser?.uid ?? 'anonimo';
   StreamSubscription<int>? _unreadSub;
+  late final Stream<QuerySnapshot> _messagesStream;
 
   @override
   void initState() {
     super.initState();
+    _messagesStream = _chatService.getMessages(widget.chatId);
     _chatService.markAsRead(widget.chatId, _myId);
     _unreadSub = _chatService
         .getUnreadCount(widget.chatId, _myId)
@@ -87,7 +91,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      resizeToAvoidBottomInset: true,
+      resizeToAvoidBottomInset: false,
       body: Container(
         decoration: const BoxDecoration(
           image: DecorationImage(
@@ -100,7 +104,7 @@ class _ChatScreenState extends State<ChatScreen> {
             _buildAppBar(context),
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
-                stream: _chatService.getMessages(widget.chatId),
+                stream: _messagesStream,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(
@@ -120,14 +124,34 @@ class _ChatScreenState extends State<ChatScreen> {
 
                   final messages = snapshot.data!.docs;
 
-                  return ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
+                  if (messages.length > _lastKnownMessageCount) {
+                    final isNewMessage = _lastKnownMessageCount > 0;
+                    _lastKnownMessageCount = messages.length;
+                    if (isNewMessage) {
+                      final newDummyIndex = messages.length;
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (_itemScrollController.isAttached) {
+                          _itemScrollController.jumpTo(
+                            index: newDummyIndex,
+                            alignment: 1.0,
+                          );
+                        }
+                      });
+                    }
+                  }
+
+                  return ScrollablePositionedList.builder(
+                    itemCount: messages.length + 1,
+                    initialScrollIndex: messages.length,
+                    initialAlignment: 1.0,
+                    itemScrollController: _itemScrollController,
+                    padding: const EdgeInsets.only(
+                      left: 16,
+                      right: 16,
+                      top: 12,
                     ),
-                    itemCount: messages.length,
                     itemBuilder: (context, index) {
+                      if (index == messages.length) return const SizedBox.shrink();
                       final data =
                           messages[index].data() as Map<String, dynamic>;
                       final isMe = data['senderId'] == _myId;
@@ -177,6 +201,8 @@ class _ChatScreenState extends State<ChatScreen> {
                             time: time,
                             showTimestamp: showTimestamp,
                           ),
+                          if (index == messages.length - 1)
+                            const SizedBox(height: 8),
                         ],
                       );
                     },
@@ -189,7 +215,12 @@ class _ChatScreenState extends State<ChatScreen> {
                 backgroundColor: Colors.white.withValues(alpha: 0.1),
                 color: AppColors.primary,
               ),
-            SafeArea(top: false, child: _buildInputBar()),
+            Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+              ),
+              child: _buildInputBar(),
+            ),
           ],
         ),
       ),
@@ -432,7 +463,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildInputBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      padding: EdgeInsets.fromLTRB(
+        12, 12, 12, 12 + MediaQuery.of(context).padding.bottom,
+      ),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.3),
         border: Border(

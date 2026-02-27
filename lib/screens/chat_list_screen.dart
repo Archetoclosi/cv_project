@@ -6,6 +6,7 @@ import '../services/auth_service.dart';
 import '../services/notification_service.dart';
 import 'chat_screen.dart';
 import '../theme/app_colors.dart';
+import '../widgets/whats_new_sheet.dart';
 
 String _formatChatDate(DateTime date) {
   final now = DateTime.now();
@@ -39,6 +40,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
   StreamSubscription<int>? _badgeSub;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) WhatsNewSheet.showIfNew(context);
+    });
+  }
+
+  @override
   void dispose() {
     _badgeSub?.cancel();
     super.dispose();
@@ -65,6 +74,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
+      resizeToAvoidBottomInset: false,
       body: Container(
         decoration: const BoxDecoration(
           image: DecorationImage(
@@ -102,14 +112,23 @@ class _ChatListScreenState extends State<ChatListScreen> {
               fontWeight: FontWeight.bold,
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.more_horiz, color: Colors.white),
-            onPressed: () async {
-              await _authService.signOut();
-              if (context.mounted) {
-                Navigator.pushReplacementNamed(context, '/');
-              }
-            },
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.new_releases_outlined, color: Colors.white),
+                tooltip: "What's New",
+                onPressed: () => WhatsNewSheet.showManually(context),
+              ),
+              IconButton(
+                icon: const Icon(Icons.logout, color: Colors.white),
+                onPressed: () async {
+                  await _authService.signOut();
+                  if (context.mounted) {
+                    Navigator.pushReplacementNamed(context, '/');
+                  }
+                },
+              ),
+            ],
           ),
         ],
       ),
