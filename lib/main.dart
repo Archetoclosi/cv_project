@@ -25,6 +25,7 @@ class SensorLogger {
   MagnetometerEvent? _mag;
 
   void start({int hz = 25}) {
+    if (_timer != null) return; // already running
     // Sensor sampling at 2x target Hz to ensure fresh data each tick
     final sensorPeriod = Duration(milliseconds: (1000 / (hz * 2)).round());
 
@@ -85,7 +86,7 @@ Future<void> main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  /// Avvio logger giroscopio
+  /// Avvio sensor logger (accel + gyro + mag)
   //sensorLogger.start(hz: 25);
 
   runApp(const MyApp());
