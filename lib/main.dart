@@ -12,7 +12,7 @@ import 'theme/app_colors.dart';
 
 /// Sensor logger: accelerometer + gyroscope + magnetometer
 /// Outputs structured lines via debugPrint at configurable Hz.
-/// Format: SENSOR|<unix_ms>|<ax>,<ay>,<az>|<gx>,<gy>,<gz>|<mx>,<my>,<mz>
+/// Format: SENSOR|<unix_ms>|A:<x>,<y>,<z>|G:<x>,<y>,<z>|M:<x>,<y>,<z>
 class SensorLogger {
   StreamSubscription<AccelerometerEvent>? _accelSub;
   StreamSubscription<GyroscopeEvent>? _gyroSub;
@@ -46,14 +46,14 @@ class SensorLogger {
       final m = _mag;
 
       final accelStr = a != null
-          ? '${a.x.toStringAsFixed(4)},${a.y.toStringAsFixed(4)},${a.z.toStringAsFixed(4)}'
-          : ',,';
+          ? 'A:${a.x.toStringAsFixed(2)},${a.y.toStringAsFixed(2)},${a.z.toStringAsFixed(2)}'
+          : 'A:,,';
       final gyroStr = g != null
-          ? '${g.x.toStringAsFixed(4)},${g.y.toStringAsFixed(4)},${g.z.toStringAsFixed(4)}'
-          : ',,';
+          ? 'G:${g.x.toStringAsFixed(2)},${g.y.toStringAsFixed(2)},${g.z.toStringAsFixed(2)}'
+          : 'G:,,';
       final magStr = m != null
-          ? '${m.x.toStringAsFixed(4)},${m.y.toStringAsFixed(4)},${m.z.toStringAsFixed(4)}'
-          : ',,';
+          ? 'M:${m.x.toStringAsFixed(2)},${m.y.toStringAsFixed(2)},${m.z.toStringAsFixed(2)}'
+          : 'M:,,';
 
       debugPrint('SENSOR|$now|$accelStr|$gyroStr|$magStr');
     });
@@ -87,7 +87,7 @@ Future<void> main() async {
   );
 
   /// Avvio sensor logger (accel + gyro + mag)
-  //sensorLogger.start(hz: 25);
+  sensorLogger.start(hz: 25);
 
   runApp(const MyApp());
 }
