@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'firebase_options.dart';
 import 'screens/auth_screen.dart';
@@ -10,22 +11,54 @@ import 'screens/chat_list_screen.dart';
 import 'screens/chat_screen.dart';
 import 'theme/app_colors.dart';
 
+enum SensorMode { debug, websocket, both }
+
 /// Sensor logger: accelerometer + gyroscope + magnetometer
-/// Outputs structured lines via debugPrint at configurable Hz.
+/// Outputs structured lines via debugPrint and/or WebSocket at configurable Hz.
 /// Format: SENSOR|<unix_ms>|A:<x>,<y>,<z>|G:<x>,<y>,<z>|M:<x>,<y>,<z>
 class SensorLogger {
   StreamSubscription<AccelerometerEvent>? _accelSub;
   StreamSubscription<GyroscopeEvent>? _gyroSub;
   StreamSubscription<MagnetometerEvent>? _magSub;
   Timer? _timer;
+  WebSocketChannel? _ws;
+  SensorMode _mode = SensorMode.debug;
 
   // Latest buffered values (null until first event arrives)
   AccelerometerEvent? _accel;
   GyroscopeEvent? _gyro;
   MagnetometerEvent? _mag;
 
-  void start({int hz = 25}) {
+  /// Whether the logger is currently running.
+  bool get isRunning => _timer != null;
+
+  /// Current connection status for UI.
+  /// Returns 'connected', 'disconnected', or 'debug'.
+  String get connectionStatus {
+    if (_mode == SensorMode.debug) return 'debug';
+    if (_ws != null) return 'connected';
+    return 'disconnected';
+  }
+
+  void start({
+    int hz = 25,
+    SensorMode mode = SensorMode.debug,
+    String wsUrl = 'ws://192.168.1.100:8765',
+  }) {
     if (_timer != null) return; // already running
+    _mode = mode;
+
+    // Open WebSocket if needed
+    if (mode == SensorMode.websocket || mode == SensorMode.both) {
+      try {
+        _ws = WebSocketChannel.connect(Uri.parse(wsUrl));
+      } catch (e) {
+        debugPrint('WS connect error: $e — falling back to debug mode');
+        _mode = SensorMode.debug;
+        _ws = null;
+      }
+    }
+
     // Sensor sampling at 2x target Hz to ensure fresh data each tick
     final sensorPeriod = Duration(milliseconds: (1000 / (hz * 2)).round());
 
@@ -55,7 +88,21 @@ class SensorLogger {
           ? 'M:${m.x.toStringAsFixed(2)},${m.y.toStringAsFixed(2)},${m.z.toStringAsFixed(2)}'
           : 'M:,,';
 
-      debugPrint('SENSOR|$now|$accelStr|$gyroStr|$magStr');
+      final line = 'SENSOR|$now|$accelStr|$gyroStr|$magStr';
+
+      // Route to debugPrint and/or WebSocket
+      if (_mode == SensorMode.debug || _mode == SensorMode.both) {
+        debugPrint(line);
+      }
+      if ((_mode == SensorMode.websocket || _mode == SensorMode.both) && _ws != null) {
+        try {
+          _ws!.sink.add(line);
+        } catch (e) {
+          debugPrint('WS send error: $e — falling back to debug');
+          _ws = null;
+          _mode = SensorMode.debug;
+        }
+      }
     });
   }
 
@@ -71,6 +118,8 @@ class SensorLogger {
     _accel = null;
     _gyro = null;
     _mag = null;
+    await _ws?.sink.close();
+    _ws = null;
   }
 }
 
@@ -87,7 +136,7 @@ Future<void> main() async {
   );
 
   /// Avvio sensor logger (accel + gyro + mag)
-  sensorLogger.start(hz: 25);
+  sensorLogger.start(hz: 5, mode: SensorMode.debug);
 
   runApp(const MyApp());
 }
