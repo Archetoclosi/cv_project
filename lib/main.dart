@@ -10,33 +10,66 @@ import 'screens/chat_list_screen.dart';
 import 'screens/chat_screen.dart';
 import 'theme/app_colors.dart';
 
-/// LOGGER GIROSCOPIO (servizio semplice)
+/// Sensor logger: accelerometer + gyroscope + magnetometer
+/// Outputs structured lines via debugPrint at configurable Hz.
+/// Format: SENSOR|<unix_ms>|<ax>,<ay>,<az>|<gx>,<gy>,<gz>|<mx>,<my>,<mz>
 class SensorLogger {
-  StreamSubscription<GyroscopeEvent>? _sub;
-  DateTime _last = DateTime.fromMillisecondsSinceEpoch(0);
+  StreamSubscription<AccelerometerEvent>? _accelSub;
+  StreamSubscription<GyroscopeEvent>? _gyroSub;
+  StreamSubscription<MagnetometerEvent>? _magSub;
+  Timer? _timer;
+
+  // Latest buffered values (null until first event arrives)
+  AccelerometerEvent? _accel;
+  GyroscopeEvent? _gyro;
+  MagnetometerEvent? _mag;
 
   void start({int hz = 25}) {
-    final minIntervalMs = (1000 / hz).round();
+    // Sensor sampling at 2x target Hz to ensure fresh data each tick
+    final sensorPeriod = Duration(milliseconds: (1000 / (hz * 2)).round());
 
-    _sub = gyroscopeEvents.listen((e) {
-      final now = DateTime.now();
-      if (now.difference(_last).inMilliseconds < minIntervalMs) return;
-      _last = now;
+    _accelSub = accelerometerEventStream(samplingPeriod: sensorPeriod)
+        .listen((e) => _accel = e, onError: (e) => debugPrint('Accel error: $e'));
 
-      debugPrint(
-        'GYRO ts=${now.toIso8601String()} '
-        'x=${e.x.toStringAsFixed(4)} '
-        'y=${e.y.toStringAsFixed(4)} '
-        'z=${e.z.toStringAsFixed(4)} rad/s',
-      );
-    }, onError: (err) {
-      debugPrint('Gyro error: $err');
+    _gyroSub = gyroscopeEventStream(samplingPeriod: sensorPeriod)
+        .listen((e) => _gyro = e, onError: (e) => debugPrint('Gyro error: $e'));
+
+    _magSub = magnetometerEventStream(samplingPeriod: sensorPeriod)
+        .listen((e) => _mag = e, onError: (e) => debugPrint('Mag error: $e'));
+
+    // Timer emits combined line at target Hz
+    _timer = Timer.periodic(Duration(milliseconds: (1000 / hz).round()), (_) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final a = _accel;
+      final g = _gyro;
+      final m = _mag;
+
+      final accelStr = a != null
+          ? '${a.x.toStringAsFixed(4)},${a.y.toStringAsFixed(4)},${a.z.toStringAsFixed(4)}'
+          : ',,';
+      final gyroStr = g != null
+          ? '${g.x.toStringAsFixed(4)},${g.y.toStringAsFixed(4)},${g.z.toStringAsFixed(4)}'
+          : ',,';
+      final magStr = m != null
+          ? '${m.x.toStringAsFixed(4)},${m.y.toStringAsFixed(4)},${m.z.toStringAsFixed(4)}'
+          : ',,';
+
+      debugPrint('SENSOR|$now|$accelStr|$gyroStr|$magStr');
     });
   }
 
   Future<void> stop() async {
-    await _sub?.cancel();
-    _sub = null;
+    _timer?.cancel();
+    _timer = null;
+    await _accelSub?.cancel();
+    await _gyroSub?.cancel();
+    await _magSub?.cancel();
+    _accelSub = null;
+    _gyroSub = null;
+    _magSub = null;
+    _accel = null;
+    _gyro = null;
+    _mag = null;
   }
 }
 
