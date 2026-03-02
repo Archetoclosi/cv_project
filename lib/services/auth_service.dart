@@ -1,6 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter_app_badger/flutter_app_badger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthService {
@@ -53,15 +52,7 @@ class AuthService {
 
   // Logout
   Future<void> signOut() async {
-    final uid = currentUser?.uid;
-    if (uid != null) {
-      await _db
-          .collection('users')
-          .doc(uid)
-          .set({'fcmToken': ''}, SetOptions(merge: true));
-    }
     await clearRememberMe();
-    await FlutterAppBadger.removeBadge();
     await _auth.signOut();
   }
 

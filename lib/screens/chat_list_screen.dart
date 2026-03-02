@@ -1,9 +1,7 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/chat_service.dart';
 import '../services/auth_service.dart';
-import '../services/notification_service.dart';
 import 'chat_screen.dart';
 import '../theme/app_colors.dart';
 import '../widgets/whats_new_sheet.dart';
@@ -37,29 +35,11 @@ class ChatListScreen extends StatefulWidget {
 class _ChatListScreenState extends State<ChatListScreen> {
   final AuthService _authService = AuthService();
   final ChatService _chatService = ChatService();
-  StreamSubscription<int>? _badgeSub;
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) WhatsNewSheet.showIfNew(context);
-    });
-  }
-
-  @override
-  void dispose() {
-    _badgeSub?.cancel();
-    super.dispose();
-  }
-
-  void _subscribeToBadge(List<String> chatIds) {
-    _badgeSub?.cancel();
-    final uid = _authService.currentUser!.uid;
-    _badgeSub = _chatService
-        .getTotalUnreadCount(uid, chatIds)
-        .listen((total) {
-      NotificationService().updateAppBadge(total);
     });
   }
 
@@ -195,9 +175,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
             ),
           );
         }
-
-        final chatIds = users.map((u) => _getChatId(currentUserId, u.id)).toList();
-        _subscribeToBadge(chatIds);
 
         return ListView.builder(
           padding: const EdgeInsets.symmetric(horizontal: 20),

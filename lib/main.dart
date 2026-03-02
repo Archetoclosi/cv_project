@@ -8,7 +8,6 @@ import 'firebase_options.dart';
 import 'screens/auth_screen.dart';
 import 'screens/chat_list_screen.dart';
 import 'screens/chat_screen.dart';
-import 'services/notification_service.dart';
 import 'theme/app_colors.dart';
 
 /// LOGGER GIROSCOPIO (servizio semplice)
@@ -49,8 +48,6 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  NotificationService.registerBackgroundHandler();
-
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
@@ -70,14 +67,6 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      NotificationService().initialize(navigatorKey);
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
