@@ -11,115 +11,118 @@ import 'screens/chat_list_screen.dart';
 import 'screens/chat_screen.dart';
 import 'theme/app_colors.dart';
 
-enum SensorMode { debug, websocket, both }
+enum SensorConnectionState { disconnected, connecting, connected, failed }
 
-/// Sensor logger: accelerometer + gyroscope + magnetometer
-/// Outputs structured lines via debugPrint and/or WebSocket at configurable Hz.
-/// Format: SENSOR|<unix_ms>|A:<x>,<y>,<z>|G:<x>,<y>,<z>|M:<x>,<y>,<z>
 class SensorLogger {
   StreamSubscription<AccelerometerEvent>? _accelSub;
   StreamSubscription<GyroscopeEvent>? _gyroSub;
   StreamSubscription<MagnetometerEvent>? _magSub;
   Timer? _timer;
   WebSocketChannel? _ws;
-  SensorMode _mode = SensorMode.debug;
 
-  // Latest buffered values (null until first event arrives)
   AccelerometerEvent? _accel;
   GyroscopeEvent? _gyro;
   MagnetometerEvent? _mag;
 
-  /// Whether the logger is currently running.
+  final connectionState =
+      ValueNotifier<SensorConnectionState>(SensorConnectionState.disconnected);
+
   bool get isRunning => _timer != null;
 
-  /// Current connection status for UI.
-  /// Returns 'connected', 'disconnected', or 'debug'.
-  String get connectionStatus {
-    if (_mode == SensorMode.debug) return 'debug';
-    if (_ws != null) return 'connected';
-    return 'disconnected';
+  /// Start in debug (print) mode. Only meaningful in debug builds.
+  void startDebug({int hz = 5}) {
+    if (_timer != null) return;
+    connectionState.value = SensorConnectionState.connected;
+    _startSensors(hz, websocket: false);
   }
 
-  void start({
-    int hz = 25,
-    SensorMode mode = SensorMode.debug,
-    String wsUrl = 'ws://192.168.1.100:8765',
-  }) {
-    if (_timer != null) return; // already running
-    _mode = mode;
-
-    // Open WebSocket if needed
-    if (mode == SensorMode.websocket || mode == SensorMode.both) {
-      try {
-        _ws = WebSocketChannel.connect(Uri.parse(wsUrl));
-      } catch (e) {
-        debugPrint('WS connect error: $e — falling back to debug mode');
-        _mode = SensorMode.debug;
-        _ws = null;
-      }
-    }
-
-    // Sensor sampling at 2x target Hz to ensure fresh data each tick
-    final sensorPeriod = Duration(milliseconds: (1000 / (hz * 2)).round());
-
-    _accelSub = accelerometerEventStream(samplingPeriod: sensorPeriod)
-        .listen((e) => _accel = e, onError: (e) => debugPrint('Accel error: $e'));
-
-    _gyroSub = gyroscopeEventStream(samplingPeriod: sensorPeriod)
-        .listen((e) => _gyro = e, onError: (e) => debugPrint('Gyro error: $e'));
-
-    _magSub = magnetometerEventStream(samplingPeriod: sensorPeriod)
-        .listen((e) => _mag = e, onError: (e) => debugPrint('Mag error: $e'));
-
-    // Timer emits combined line at target Hz
-    _timer = Timer.periodic(Duration(milliseconds: (1000 / hz).round()), (_) {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final a = _accel;
-      final g = _gyro;
-      final m = _mag;
-
-      final accelStr = a != null
-          ? 'A:${a.x.toStringAsFixed(2)},${a.y.toStringAsFixed(2)},${a.z.toStringAsFixed(2)}'
-          : 'A:,,';
-      final gyroStr = g != null
-          ? 'G:${g.x.toStringAsFixed(2)},${g.y.toStringAsFixed(2)},${g.z.toStringAsFixed(2)}'
-          : 'G:,,';
-      final magStr = m != null
-          ? 'M:${m.x.toStringAsFixed(2)},${m.y.toStringAsFixed(2)},${m.z.toStringAsFixed(2)}'
-          : 'M:,,';
-
-      final line = 'SENSOR|$now|$accelStr|$gyroStr|$magStr';
-
-      // Route to debugPrint and/or WebSocket
-      if (_mode == SensorMode.debug || _mode == SensorMode.both) {
-        debugPrint(line);
-      }
-      if ((_mode == SensorMode.websocket || _mode == SensorMode.both) && _ws != null) {
-        try {
-          _ws!.sink.add(line);
-        } catch (e) {
-          debugPrint('WS send error: $e — falling back to debug');
+  /// Connect via WebSocket, then start sensors on success.
+  Future<void> connect({required String wsUrl, int hz = 5}) async {
+    if (_timer != null) return;
+    connectionState.value = SensorConnectionState.connecting;
+    try {
+      _ws = WebSocketChannel.connect(Uri.parse(wsUrl));
+      await _ws!.ready;
+      // Listen for runtime disconnects
+      _ws!.stream.listen(
+        (_) {},
+        onError: (_) {
+          connectionState.value = SensorConnectionState.failed;
           _ws = null;
-          _mode = SensorMode.debug;
-        }
-      }
-    });
+          _stopTimerAndSensors();
+        },
+        onDone: () {
+          if (connectionState.value == SensorConnectionState.connected) {
+            connectionState.value = SensorConnectionState.disconnected;
+          }
+          _ws = null;
+          _stopTimerAndSensors();
+        },
+        cancelOnError: true,
+      );
+      connectionState.value = SensorConnectionState.connected;
+      _startSensors(hz, websocket: true);
+    } catch (e) {
+      debugPrint('WS connect error: $e');
+      _ws = null;
+      connectionState.value = SensorConnectionState.failed;
+    }
   }
 
   Future<void> stop() async {
+    connectionState.value = SensorConnectionState.disconnected;
+    _stopTimerAndSensors();
+    await _ws?.sink.close();
+    _ws = null;
+  }
+
+  void _stopTimerAndSensors() {
     _timer?.cancel();
     _timer = null;
-    await _accelSub?.cancel();
-    await _gyroSub?.cancel();
-    await _magSub?.cancel();
+    _accelSub?.cancel();
+    _gyroSub?.cancel();
+    _magSub?.cancel();
     _accelSub = null;
     _gyroSub = null;
     _magSub = null;
     _accel = null;
     _gyro = null;
     _mag = null;
-    await _ws?.sink.close();
-    _ws = null;
+  }
+
+  void _startSensors(int hz, {required bool websocket}) {
+    final sensorPeriod = Duration(milliseconds: (1000 / (hz * 2)).round());
+
+    _accelSub = accelerometerEventStream(samplingPeriod: sensorPeriod)
+        .listen((e) => _accel = e, onError: (_) {});
+    _gyroSub = gyroscopeEventStream(samplingPeriod: sensorPeriod)
+        .listen((e) => _gyro = e, onError: (_) {});
+    _magSub = magnetometerEventStream(samplingPeriod: sensorPeriod)
+        .listen((e) => _mag = e, onError: (_) {});
+
+    _timer = Timer.periodic(Duration(milliseconds: (1000 / hz).round()), (_) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final a = _accel;
+      final g = _gyro;
+      final m = _mag;
+
+      final line = 'SENSOR|$now'
+          '|A:${a != null ? '${a.x.toStringAsFixed(2)},${a.y.toStringAsFixed(2)},${a.z.toStringAsFixed(2)}' : ',,'}'
+          '|G:${g != null ? '${g.x.toStringAsFixed(2)},${g.y.toStringAsFixed(2)},${g.z.toStringAsFixed(2)}' : ',,'}'
+          '|M:${m != null ? '${m.x.toStringAsFixed(2)},${m.y.toStringAsFixed(2)},${m.z.toStringAsFixed(2)}' : ',,'}';
+
+      if (websocket && _ws != null) {
+        try {
+          _ws!.sink.add(line);
+        } catch (_) {
+          connectionState.value = SensorConnectionState.failed;
+          _ws = null;
+          _stopTimerAndSensors();
+        }
+      } else {
+        debugPrint(line);
+      }
+    });
   }
 }
 
@@ -134,9 +137,6 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-
-  /// Avvio sensor logger (accel + gyro + mag)
-  sensorLogger.start(hz: 5, mode: SensorMode.debug);
 
   runApp(const MyApp());
 }
