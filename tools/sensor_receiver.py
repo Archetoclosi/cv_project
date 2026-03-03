@@ -7,6 +7,7 @@ import os
 import sys
 
 PIPE_PATH = os.getenv("SENSOR_PIPE_PATH", "/tmp/sensor_data")
+PORT = int(os.getenv("SENSOR_PORT", "8765"))
 
 
 def write_to_pipe(data: str):
@@ -29,10 +30,10 @@ async def handler(websocket):
 
 
 async def main():
-    print(f"Sensor receiver listening on ws://0.0.0.0:8765")
+    print(f"Sensor receiver listening on ws://0.0.0.0:{PORT}")
     print(f"Writing data to {PIPE_PATH}")
     try:
-        async with websockets.serve(handler, "0.0.0.0", 8765):
+        async with websockets.serve(handler, "0.0.0.0", PORT):
             await asyncio.Future()  # run forever
     except OSError as e:
         if "Address already in use" in str(e):
