@@ -1,5 +1,5 @@
 """
-IMU Sensor Interpreter
+Sensor Interpreter
 Legge log Flutter nel formato:
     flutter: SENSOR|timestamp|A:x,y,z|G:x,y,z|M:x,y,z
 e stampa in tempo reale la posizione del telefono e le variazioni dei sensori.

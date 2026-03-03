@@ -7,7 +7,7 @@ import os
 import sys
 
 PIPE_PATH = os.getenv("SENSOR_PIPE_PATH", "/tmp/sensor_data")
-PORT = int(os.getenv("SENSOR_PORT", "8765"))
+PORT = int(os.getenv("SENSOR_PORT", "9000"))
 
 
 def write_to_pipe(data: str):

@@ -4,7 +4,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart';
 
 const _prefKeyHost = 'sensor_ws_host';
+const _prefKeyHz = 'sensor_hz';
 const _defaultHost = '172.20.10.2:8765';
+const _defaultHz = 5;
+const _hzOptions = [1, 5, 10, 20, 30, 60];
 
 class SensorSheet extends StatefulWidget {
   const SensorSheet({super.key});
@@ -26,6 +29,7 @@ class _SensorSheetState extends State<SensorSheet>
     with SingleTickerProviderStateMixin {
   // true = WebSocket, false = debug print (only relevant in debug builds)
   bool _wsMode = true;
+  int _hz = _defaultHz;
   late final TextEditingController _hostController;
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnim;
@@ -50,23 +54,25 @@ class _SensorSheetState extends State<SensorSheet>
     if (!mounted) return;
     setState(() {
       _hostController.text = prefs.getString(_prefKeyHost) ?? _defaultHost;
+      _hz = prefs.getInt(_prefKeyHz) ?? _defaultHz;
       _prefsLoaded = true;
     });
   }
 
-  Future<void> _saveHost() async {
+  Future<void> _savePrefs() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefKeyHost, _hostController.text.trim());
+    await prefs.setInt(_prefKeyHz, _hz);
   }
 
   Future<void> _connect() async {
-    await _saveHost();
+    await _savePrefs();
     final url = 'ws://${_hostController.text.trim()}';
-    await sensorLogger.connect(wsUrl: url, hz: 5);
+    await sensorLogger.connect(wsUrl: url, hz: _hz);
   }
 
   void _startDebug() {
-    sensorLogger.startDebug(hz: 5);
+    sensorLogger.startDebug(hz: _hz);
   }
 
   Future<void> _stop() async {
@@ -127,6 +133,17 @@ class _SensorSheetState extends State<SensorSheet>
                 _HostField(
                   controller: _hostController,
                   enabled: _prefsLoaded,
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // Frequency selector — only when not running
+              if (!running) ...[
+                _SectionLabel('Frequency'),
+                const SizedBox(height: 8),
+                _FrequencySelector(
+                  selected: _hz,
+                  onChanged: (v) => setState(() => _hz = v),
                 ),
                 const SizedBox(height: 16),
               ],
@@ -305,6 +322,42 @@ class _StatusIndicator extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _FrequencySelector extends StatelessWidget {
+  final int selected;
+  final ValueChanged<int> onChanged;
+  const _FrequencySelector({required this.selected, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).primaryColor;
+    return Wrap(
+      spacing: 8,
+      children: _hzOptions.map((hz) {
+        final isSelected = hz == selected;
+        return GestureDetector(
+          onTap: () => onChanged(hz),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: isSelected ? primary : Colors.white10,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              '$hz Hz',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: isSelected ? 1.0 : 0.6),
+                fontSize: 14,
+                fontWeight:
+                    isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 }
