@@ -336,6 +336,7 @@ class _FrequencySelector extends StatelessWidget {
     final primary = Theme.of(context).primaryColor;
     return Wrap(
       spacing: 8,
+      runSpacing: 8,
       children: _hzOptions.map((hz) {
         final isSelected = hz == selected;
         return GestureDetector(
