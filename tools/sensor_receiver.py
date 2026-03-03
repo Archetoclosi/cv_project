@@ -31,10 +31,15 @@ async def handler(websocket):
 async def main():
     print(f"Sensor receiver listening on ws://0.0.0.0:8765")
     print(f"Writing data to {PIPE_PATH}")
-
-    # Allow port reuse to prevent "Address already in use" after crashes
-    async with websockets.serve(handler, "0.0.0.0", 8765, reuse_address=True):
-        await asyncio.Future()  # run forever
+    try:
+        async with websockets.serve(handler, "0.0.0.0", 8765):
+            await asyncio.Future()  # run forever
+    except OSError as e:
+        if "Address already in use" in str(e):
+            print(f"[-] Port 8765 already in use. Kill existing process and try again:")
+            print(f"    pkill -f sensor_receiver.py", file=sys.stderr)
+            sys.exit(1)
+        raise
 
 
 if __name__ == "__main__":

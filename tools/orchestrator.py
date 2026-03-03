@@ -42,6 +42,7 @@ class ProcessManager:
 
     def start_all(self):
         """Start all registered processes."""
+        self._cleanup_old_processes()
         self._create_pipe()
         self.running = True
 
@@ -51,6 +52,19 @@ class ProcessManager:
         # Start monitor thread
         self.monitor_thread = threading.Thread(target=self._monitor_processes, daemon=True)
         self.monitor_thread.start()
+
+    def _cleanup_old_processes(self):
+        """Kill any old receiver/interpreter processes still running."""
+        import subprocess as sp
+        try:
+            # Kill old sensor_receiver processes on port 8765
+            sp.run(
+                "lsof -i :8765 2>/dev/null | grep -v COMMAND | awk '{print $2}' | xargs kill -9 2>/dev/null",
+                shell=True,
+                capture_output=True
+            )
+        except Exception:
+            pass
 
     def _create_pipe(self):
         """Create named pipe if it doesn't exist."""
