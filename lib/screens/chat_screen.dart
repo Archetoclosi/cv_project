@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+
 import '../services/chat_service.dart';
 import '../services/auth_service.dart';
-import 'package:image_picker/image_picker.dart';
+import '../services/protected_photo_view.dart';
 import '../theme/app_colors.dart';
-import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 class ChatScreen extends StatefulWidget {
   final String contactName;
@@ -38,9 +40,9 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     _messagesStream = _chatService.getMessages(widget.chatId);
     _chatService.markAsRead(widget.chatId, _myId);
-    _unreadSub = _chatService
-        .getUnreadCount(widget.chatId, _myId)
-        .listen((count) {
+    _unreadSub = _chatService.getUnreadCount(widget.chatId, _myId).listen((
+      count,
+    ) {
       if (count > 0) {
         _chatService.markAsRead(widget.chatId, _myId);
       }
@@ -60,7 +62,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _controller.clear();
   }
 
-  Future<void> _sendImage() async {
+  Future<void> _pickAndSendImage({required bool oneTime}) async {
     final picker = ImagePicker();
     final picked = await picker.pickImage(
       source: ImageSource.gallery,
@@ -73,7 +75,12 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() => _isUploadingImage = true);
       final bytes = await picked.readAsBytes();
       if (bytes.isEmpty) return;
-      await _chatService.sendImage(widget.chatId, _myId, bytes);
+      await _chatService.sendImage(
+        widget.chatId,
+        _myId,
+        bytes,
+        oneTime: oneTime,
+      );
     } catch (e) {
       debugPrint('Errore invio immagine: $e');
     } finally {
@@ -151,9 +158,11 @@ class _ChatScreenState extends State<ChatScreen> {
                       top: 12,
                     ),
                     itemBuilder: (context, index) {
-                      if (index == messages.length) return const SizedBox.shrink();
-                      final data =
-                          messages[index].data() as Map<String, dynamic>;
+                      if (index == messages.length)
+                        return const SizedBox.shrink();
+                      final doc = messages[index];
+                      final data = doc.data() as Map<String, dynamic>;
+                      final messageId = doc.id;
                       final isMe = data['senderId'] == _myId;
                       final type = data['type'] as String? ?? 'text';
                       final timestamp = data['timestamp'] as Timestamp?;
@@ -171,15 +180,22 @@ class _ChatScreenState extends State<ChatScreen> {
                           showSeparator = true;
                         } else {
                           final prevData =
-                              messages[index - 1].data() as Map<String, dynamic>;
+                              messages[index - 1].data()
+                                  as Map<String, dynamic>;
                           final prevTimestamp =
                               prevData['timestamp'] as Timestamp?;
                           if (prevTimestamp != null) {
                             final prevDate = prevTimestamp.toDate();
-                            if (DateTime(messageDate.year, messageDate.month,
-                                    messageDate.day) !=
-                                DateTime(prevDate.year, prevDate.month,
-                                    prevDate.day)) {
+                            if (DateTime(
+                                  messageDate.year,
+                                  messageDate.month,
+                                  messageDate.day,
+                                ) !=
+                                DateTime(
+                                  prevDate.year,
+                                  prevDate.month,
+                                  prevDate.day,
+                                )) {
                               showSeparator = true;
                             }
                           }
@@ -196,6 +212,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           _buildMessageBubble(
                             context: context,
                             data: data,
+                            messageId: messageId,
                             isMe: isMe,
                             type: type,
                             time: time,
@@ -335,6 +352,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _buildMessageBubble({
     required BuildContext context,
     required Map<String, dynamic> data,
+    required String messageId,
     required bool isMe,
     required String type,
     required String time,
@@ -369,58 +387,13 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
             child: type == 'image'
-                ? Stack(
-                    alignment: Alignment.bottomRight,
-                    children: [
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => FullScreenImage(
-                                imageUrl: data['imageUrl'] as String,
-                              ),
-                            ),
-                          );
-                        },
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
-                          child: Image.network(
-                            data['imageUrl'] as String,
-                            width: 200,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                      ),
-                      if (showTimestamp && time.isNotEmpty)
-                        Positioned(
-                          bottom: 6,
-                          right: 8,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 5, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.45),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  time,
-                                  style: const TextStyle(
-                                      fontSize: 10, color: Colors.white),
-                                ),
-                                if (isMe) ...[
-                                  const SizedBox(width: 3),
-                                  const Icon(Icons.done_all,
-                                      size: 12, color: Colors.white),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
+                ? _buildImageBubbleContent(
+                    context: context,
+                    data: data,
+                    isMe: isMe,
+                    time: time,
+                    showTimestamp: showTimestamp,
+                    messageId: messageId,
                   )
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
@@ -428,8 +401,10 @@ class _ChatScreenState extends State<ChatScreen> {
                     children: [
                       Text(
                         data['text'] as String,
-                        style:
-                            const TextStyle(color: Colors.white, fontSize: 15),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       if (showTimestamp && time.isNotEmpty)
@@ -461,10 +436,208 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _buildImageBubbleContent({
+    required BuildContext context,
+    required Map<String, dynamic> data,
+    required bool isMe,
+    required String time,
+    required bool showTimestamp,
+    required String messageId,
+  }) {
+    final imageUrl = data['imageUrl'] as String?;
+    final oneTime = data['oneTime'] as bool? ?? false;
+    final viewedOnce = data['viewedOnce'] as bool? ?? false;
+
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return _buildImagePlaceholder(
+        isMe,
+        time,
+        showTimestamp,
+        label: 'Foto non disponibile',
+      );
+    }
+
+    // ONE-TIME LOGIC:
+    // - Mittente: non può rivedere la foto (mai), vede solo placeholder.
+    // - Destinatario, non ancora vista: placeholder tappabile che apre il full screen.
+    // - Destinatario, già vista: placeholder "visualizzata".
+    if (oneTime) {
+      // Già vista dal destinatario (mittente o destinatario).
+      if (viewedOnce) {
+        return _buildImagePlaceholder(
+          isMe,
+          time,
+          showTimestamp,
+          label: 'Foto one time visualizzata',
+          icon: Icons.lock,
+        );
+      }
+
+      // Non ancora vista:
+      // - Mittente: solo placeholder non tappabile.
+      // - Destinatario: placeholder tappabile che apre il full screen.
+      final placeholder = _buildImagePlaceholder(
+        isMe,
+        time,
+        showTimestamp,
+        label: 'Foto one time',
+        icon: Icons.lock,
+      );
+
+      if (isMe) {
+        return placeholder;
+      }
+
+      return GestureDetector(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => FullScreenImage(
+                imageUrl: imageUrl,
+                chatId: widget.chatId,
+                messageId: messageId,
+                oneTime: oneTime,
+                isMe: isMe,
+              ),
+            ),
+          );
+        },
+        child: placeholder,
+      );
+    }
+
+    return Stack(
+      alignment: Alignment.bottomRight,
+      children: [
+        GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => FullScreenImage(
+                  imageUrl: imageUrl,
+                  chatId: widget.chatId,
+                  messageId: messageId,
+                  oneTime: oneTime,
+                  isMe: isMe,
+                ),
+              ),
+            );
+          },
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Stack(
+              children: [
+                Image.network(imageUrl, width: 200, fit: BoxFit.cover),
+                if (oneTime && !isMe)
+                  Container(
+                    width: 200,
+                    color: Colors.black.withValues(alpha: 0.35),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      Icons.lock,
+                      color: Colors.white.withValues(alpha: 0.9),
+                      size: 32,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        if (showTimestamp && time.isNotEmpty)
+          Positioned(
+            bottom: 6,
+            right: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    time,
+                    style: const TextStyle(fontSize: 10, color: Colors.white),
+                  ),
+                  if (isMe) ...[
+                    const SizedBox(width: 3),
+                    const Icon(Icons.done_all, size: 12, color: Colors.white),
+                  ],
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildImagePlaceholder(
+    bool isMe,
+    String time,
+    bool showTimestamp, {
+    required String label,
+    IconData icon = Icons.broken_image_outlined,
+  }) {
+    return Container(
+      width: 200,
+      height: 160,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Icon(icon, color: Colors.white.withValues(alpha: 0.8), size: 32),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.9),
+              fontSize: 13,
+            ),
+          ),
+          if (showTimestamp && time.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  time,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.white.withValues(alpha: 0.55),
+                  ),
+                ),
+                if (isMe) ...[
+                  const SizedBox(width: 3),
+                  Icon(
+                    Icons.done_all,
+                    size: 12,
+                    color: Colors.white.withValues(alpha: 0.55),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildInputBar() {
     return Container(
       padding: EdgeInsets.fromLTRB(
-        12, 12, 12, 12 + MediaQuery.of(context).padding.bottom,
+        12,
+        12,
+        12,
+        12 + MediaQuery.of(context).padding.bottom,
       ),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.3),
@@ -479,7 +652,52 @@ class _ChatScreenState extends State<ChatScreen> {
               Icons.attach_file,
               color: Colors.white.withValues(alpha: 0.6),
             ),
-            onPressed: _sendImage,
+            onPressed: () {
+              showModalBottomSheet<void>(
+                context: context,
+                backgroundColor: Colors.black.withValues(alpha: 0.85),
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                builder: (context) {
+                  return SafeArea(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ListTile(
+                          leading: Icon(
+                            Icons.photo,
+                            color: Colors.white.withValues(alpha: 0.9),
+                          ),
+                          title: const Text(
+                            'Invia foto',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          onTap: () {
+                            Navigator.pop(context);
+                            _pickAndSendImage(oneTime: false);
+                          },
+                        ),
+                        ListTile(
+                          leading: Icon(
+                            Icons.lock,
+                            color: Colors.white.withValues(alpha: 0.9),
+                          ),
+                          title: const Text(
+                            'Invia foto one time',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          onTap: () {
+                            Navigator.pop(context);
+                            _pickAndSendImage(oneTime: true);
+                          },
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -520,13 +738,48 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-class FullScreenImage extends StatelessWidget {
+class FullScreenImage extends StatefulWidget {
   final String imageUrl;
+  final String chatId;
+  final String messageId;
+  final bool oneTime;
+  final bool isMe;
 
-  const FullScreenImage({super.key, required this.imageUrl});
+  const FullScreenImage({
+    super.key,
+    required this.imageUrl,
+    required this.chatId,
+    required this.messageId,
+    required this.oneTime,
+    required this.isMe,
+  });
+
+  @override
+  State<FullScreenImage> createState() => _FullScreenImageState();
+}
+
+class _FullScreenImageState extends State<FullScreenImage> {
+  bool _markedViewed = false;
+
+  @override
+  void dispose() {
+    if (widget.oneTime && !widget.isMe && !_markedViewed) {
+      ChatService()
+          .markImageViewedOnce(widget.chatId, widget.messageId)
+          .catchError((_) {});
+      _markedViewed = true;
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    Widget content = Center(child: Image.network(widget.imageUrl));
+
+    if (widget.oneTime && !widget.isMe) {
+      content = ProtectedPhotoView(child: content);
+    }
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -535,10 +788,11 @@ class FullScreenImage extends StatelessWidget {
       ),
       body: InteractiveViewer(
         panEnabled: true,
-        boundaryMargin: const EdgeInsets.all(double.infinity),
+        boundaryMargin: EdgeInsets.zero, // niente trascinamento infinito
         minScale: 1.0,
         maxScale: 4.0,
-        child: Center(child: Image.network(imageUrl)),
+        clipBehavior: Clip.hardEdge,
+        child: Center(child: content),
       ),
     );
   }

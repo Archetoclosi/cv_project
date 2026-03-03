@@ -222,8 +222,16 @@ class _ChatListScreenState extends State<ChatListScreen> {
             displayTime = _formatChatDate(rawTimestamp.toDate());
           }
           final msgType = msgData['type'] as String?;
+          final oneTime = msgData['oneTime'] as bool? ?? false;
+          final viewedOnce = msgData['viewedOnce'] as bool? ?? false;
           if (msgType == 'image') {
-            lastMessagePreview = '📷 Photo';
+            if (oneTime && viewedOnce && msgData['senderId'] != currentUserId) {
+              lastMessagePreview = '📷 One-time (viewed)';
+            } else if (oneTime) {
+              lastMessagePreview = '📷 One-time photo';
+            } else {
+              lastMessagePreview = '📷 Photo';
+            }
           } else {
             lastMessagePreview = msgData['text'] as String? ?? '';
           }

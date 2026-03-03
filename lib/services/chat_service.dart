@@ -17,8 +17,9 @@ class ChatService {
   Future<void> sendImage(
     String chatId,
     String senderId,
-    Uint8List imageBytes,
-  ) async {
+    Uint8List imageBytes, {
+    bool oneTime = false,
+  }) async {
     final cloudinary = CloudinaryService();
     final url = await cloudinary.uploadImage(imageBytes);
 
@@ -28,6 +29,8 @@ class ChatService {
       'imageUrl': url,
       'senderId': senderId,
       'type': 'image',
+      'oneTime': oneTime,
+      'viewedOnce': false,
       'timestamp': FieldValue.serverTimestamp(),
     });
   }
@@ -100,5 +103,14 @@ class ChatService {
       {'unreadCounts': {userId: 0}},
       SetOptions(merge: true),
     );
+  }
+
+  Future<void> markImageViewedOnce(String chatId, String messageId) async {
+    await _db
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .doc(messageId)
+        .update({'viewedOnce': true});
   }
 }

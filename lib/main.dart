@@ -32,7 +32,9 @@ class SensorLogger {
   void startDebug({int hz = 5}) {
     if (isRunning ||
         connectionState.value == SensorConnectionState.connecting ||
-        connectionState.value == SensorConnectionState.connected) return;
+        connectionState.value == SensorConnectionState.connected) {
+      return;
+    }
     connectionState.value = SensorConnectionState.connected;
     _startSensors(hz, websocket: false);
   }
@@ -40,7 +42,9 @@ class SensorLogger {
   /// Connect via WebSocket, then start sensors on success.
   Future<void> connect({required String wsUrl, int hz = 5}) async {
     if (connectionState.value == SensorConnectionState.connecting ||
-        connectionState.value == SensorConnectionState.connected) return;
+        connectionState.value == SensorConnectionState.connected) {
+      return;
+    }
     connectionState.value = SensorConnectionState.connecting;
     try {
       _ws = WebSocketChannel.connect(Uri.parse(wsUrl));
