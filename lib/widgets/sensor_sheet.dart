@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart';
 
 const _prefKeyHost = 'sensor_ws_host';
-const _defaultHost = '192.168.1.100:8765';
+const _defaultHost = '172.20.10.2:8765';
 
 class SensorSheet extends StatefulWidget {
   const SensorSheet({super.key});
