@@ -38,7 +38,8 @@ class SensorLogger {
 
   /// Connect via WebSocket, then start sensors on success.
   Future<void> connect({required String wsUrl, int hz = 5}) async {
-    if (_timer != null) return;
+    if (connectionState.value == SensorConnectionState.connecting ||
+        connectionState.value == SensorConnectionState.connected) return;
     connectionState.value = SensorConnectionState.connecting;
     try {
       _ws = WebSocketChannel.connect(Uri.parse(wsUrl));
@@ -94,11 +95,11 @@ class SensorLogger {
     final sensorPeriod = Duration(milliseconds: (1000 / (hz * 2)).round());
 
     _accelSub = accelerometerEventStream(samplingPeriod: sensorPeriod)
-        .listen((e) => _accel = e, onError: (_) {});
+        .listen((e) => _accel = e, onError: (e) => debugPrint('Accel error: $e'));
     _gyroSub = gyroscopeEventStream(samplingPeriod: sensorPeriod)
-        .listen((e) => _gyro = e, onError: (_) {});
+        .listen((e) => _gyro = e, onError: (e) => debugPrint('Gyro error: $e'));
     _magSub = magnetometerEventStream(samplingPeriod: sensorPeriod)
-        .listen((e) => _mag = e, onError: (_) {});
+        .listen((e) => _mag = e, onError: (e) => debugPrint('Mag error: $e'));
 
     _timer = Timer.periodic(Duration(milliseconds: (1000 / hz).round()), (_) {
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -117,7 +118,7 @@ class SensorLogger {
         } catch (_) {
           connectionState.value = SensorConnectionState.failed;
           _ws = null;
-          _stopTimerAndSensors();
+          Future.microtask(_stopTimerAndSensors);
         }
       } else {
         debugPrint(line);
