@@ -31,7 +31,9 @@ async def handler(websocket):
 async def main():
     print(f"Sensor receiver listening on ws://0.0.0.0:8765")
     print(f"Writing data to {PIPE_PATH}")
-    async with websockets.serve(handler, "0.0.0.0", 8765):
+
+    # Allow port reuse to prevent "Address already in use" after crashes
+    async with websockets.serve(handler, "0.0.0.0", 8765, reuse_address=True):
         await asyncio.Future()  # run forever
 
 
