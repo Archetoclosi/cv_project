@@ -46,3 +46,7 @@ app.*.map.json
 
 .venv/
 .worktrees/
+
+# Logs directory
+logs/*.log
+!logs/.gitkeep
