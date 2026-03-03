@@ -31,7 +31,9 @@ class SensorLogger {
 
   /// Start in debug (print) mode. Only meaningful in debug builds.
   void startDebug({int hz = 5}) {
-    if (_timer != null) return;
+    if (isRunning ||
+        connectionState.value == SensorConnectionState.connecting ||
+        connectionState.value == SensorConnectionState.connected) return;
     connectionState.value = SensorConnectionState.connected;
     _startSensors(hz, websocket: false);
   }

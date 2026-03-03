@@ -149,11 +149,11 @@ class _SensorSheetState extends State<SensorSheet>
                 child: ElevatedButton(
                   onPressed: state == SensorConnectionState.connecting
                       ? null
-                      : () {
+                      : () async {
                           if (running) {
-                            _stop();
+                            await _stop();
                           } else if (_wsMode) {
-                            _connect();
+                            await _connect();
                           } else {
                             _startDebug();
                           }
