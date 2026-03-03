@@ -1,17 +1,13 @@
 """
 Process orchestrator for sensor data pipeline.
 Manages receiver and interpreter subprocesses with auto-restart.
-
-FIXES:
-- _spawn_in_terminal no longer launches a duplicate process
-- monitor correctly tracks terminal PIDs via a sidecar pid file
-- receiver is started in-process (not in terminal) so it can be monitored
-- named pipe open/close race condition avoided by keeping pipe open
+Cross-platform: macOS, Linux, Windows.
 """
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 import subprocess
+import tempfile
 import threading
 import time
 import os
@@ -21,7 +17,6 @@ import argparse
 
 @dataclass
 class ProcessConfig:
-    """Configuration for a managed process."""
     name: str
     script: str
     args: List[str]
@@ -30,14 +25,14 @@ class ProcessConfig:
 
 
 class ProcessManager:
-    """Manages multiple subprocesses with auto-restart and monitoring."""
 
-    def __init__(self, verbose: bool = False, log_output: bool = False, pipe_path: str = "/tmp/sensor_data"):
+    def __init__(self, verbose: bool = False, log_output: bool = False, pipe_path: str = ""):
         self.verbose = verbose
         self.log_output = log_output
-        self.pipe_path = pipe_path
+        self.pipe_path = pipe_path or os.path.join(tempfile.gettempdir(), "sensor_data")
         self.processes: Dict[str, subprocess.Popen] = {}
         self.process_configs: Dict[str, ProcessConfig] = {}
+        self._log_files: Dict[str, object] = {}
         self.running = False
         self.monitor_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
@@ -47,82 +42,110 @@ class ProcessManager:
 
     def start_all(self):
         self._cleanup_old_processes()
-        self._create_pipe()
+        self._create_data_file()
         self.running = True
-
         for name, config in self.process_configs.items():
             self._start_process(name, config)
-
         self.monitor_thread = threading.Thread(target=self._monitor_processes, daemon=True)
         self.monitor_thread.start()
 
     def _cleanup_old_processes(self):
-        """Kill any leftover processes from previous runs."""
         try:
-            subprocess.run(
-                "lsof -i :9000 2>/dev/null | grep -v COMMAND | awk '{print $2}' | xargs kill -9 2>/dev/null",
-                shell=True,
-                capture_output=True
-            )
-            time.sleep(0.5)  # Give the OS time to release the port
+            if sys.platform == "win32":
+                result = subprocess.run(
+                    "netstat -ano", shell=True, capture_output=True, text=True
+                )
+                killed = set()
+                for line in result.stdout.splitlines():
+                    if ":9000" in line:
+                        parts = line.split()
+                        pid = parts[-1]
+                        if pid.isdigit() and pid != "0" and pid not in killed:
+                            subprocess.run(f"taskkill /PID {pid} /F",
+                                           shell=True, capture_output=True)
+                            killed.add(pid)
+                            print(f"[Orchestrator] Killed stale process PID {pid} on port 9000")
+            else:
+                subprocess.run(
+                    "lsof -i :9000 2>/dev/null | grep -v COMMAND | awk '{print $2}' | xargs kill -9 2>/dev/null",
+                    shell=True, capture_output=True
+                )
+            time.sleep(1.0)
         except Exception:
             pass
 
-    def _create_pipe(self):
-        """Create named pipe, removing any stale one from a previous run."""
+    def _create_data_file(self):
+        """
+        Create/reset the data file.
+        On Windows, os.remove() fails with WinError 32 if the file is still
+        held open by a previous receiver process.  We wait for it to be
+        released (up to 5 s) and fall back to truncating in-place if needed.
+        """
+        if os.path.exists(self.pipe_path):
+            for attempt in range(10):
+                try:
+                    os.remove(self.pipe_path)
+                    break
+                except PermissionError:
+                    # File still locked by a dying process — wait and retry
+                    time.sleep(0.5)
+            else:
+                # Could not delete — truncate in place instead
+                try:
+                    open(self.pipe_path, "w").close()
+                    print(f"[Orchestrator] Reset data file at {self.pipe_path}")
+                    return
+                except Exception as e:
+                    print(f"[Orchestrator] Error resetting data file: {e}", file=sys.stderr)
+                    return
         try:
-            if os.path.exists(self.pipe_path):
-                os.remove(self.pipe_path)
-            os.mkfifo(self.pipe_path)
-            print(f"[Orchestrator] Created named pipe at {self.pipe_path}")
+            open(self.pipe_path, "w").close()
+            print(f"[Orchestrator] Created data file at {self.pipe_path}")
         except Exception as e:
-            print(f"[Orchestrator] Error creating pipe: {e}", file=sys.stderr)
+            print(f"[Orchestrator] Error creating data file: {e}", file=sys.stderr)
+
+    def _open_log(self, name: str, cwd: str):
+        log_dir = os.path.join(cwd, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f"{name}.log")
+        lf = open(log_file, "w", encoding="utf-8")
+        self._log_files[name] = lf
+        return lf, log_file
 
     def _start_process(self, name: str, config: ProcessConfig):
-        """
-        Start a single process.
-
-        BUG FIX: the old _spawn_in_terminal launched the process TWICE —
-        once via AppleScript/gnome-terminal and once via a direct Popen call
-        for the 'mock' return value.  Now we always create ONE real subprocess
-        and, when console=True, we open a terminal window that only tails the
-        log file (no second instance of the script).
-        """
         cmd = [sys.executable, config.script] + config.args
         cwd = os.path.dirname(os.path.abspath(__file__))
 
         with self._lock:
-            if config.console:
-                process = self._spawn_with_terminal(name, cmd, cwd)
-            else:
-                stdout = subprocess.DEVNULL if not self.log_output else subprocess.PIPE
+            lf, log_file = self._open_log(name, cwd)
+
+            # Always launch as a normal subprocess (trackable by monitor).
+            # On Windows, CREATE_NEW_CONSOLE opens a visible window natively
+            # without needing a shell wrapper — this is the reliable way.
+            if sys.platform == "win32" and config.console:
                 process = subprocess.Popen(
                     cmd,
-                    stdout=stdout,
-                    stderr=subprocess.PIPE,
+                    stdout=lf,
+                    stderr=lf,
+                    cwd=cwd,
+                    creationflags=subprocess.CREATE_NEW_CONSOLE
+                )
+            else:
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=lf,
+                    stderr=lf,
                     cwd=cwd
                 )
+                # On macOS/Linux open a tail window for visibility
+                if config.console:
+                    self._open_tail_window(name, log_file)
 
             self.processes[name] = process
             print(f"[Orchestrator] Started {name} (PID: {process.pid})")
 
-    def _spawn_with_terminal(self, name: str, cmd: list, cwd: str) -> subprocess.Popen:
-        """
-        Launch the process as a normal subprocess (so the monitor can track it)
-        and open a terminal window that shows its output via `tail -f`.
-
-        This avoids the previous bug where the process was started twice:
-        once in the terminal emulator and once as a Popen mock.
-        """
-        log_dir = os.path.join(cwd, "logs")
-        os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, f"{name}.log")
-
-        # One real process — output goes to a log file
-        with open(log_file, "w") as lf:
-            process = subprocess.Popen(cmd, stdout=lf, stderr=lf, cwd=cwd)
-
-        # Terminal window just tails the log — it does NOT run the script again
+    def _open_tail_window(self, name: str, log_file: str):
+        """Open a terminal window that tails the log (macOS/Linux only)."""
         tail_cmd = f"tail -f {log_file}"
         try:
             if sys.platform == "darwin":
@@ -137,18 +160,12 @@ class ProcessManager:
                      "bash", "-c", f"{tail_cmd}; read"],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                 )
-            elif sys.platform == "win32":
-                subprocess.Popen(["start", "cmd", "/k", tail_cmd], shell=True)
         except FileNotFoundError:
-            print(f"[Orchestrator] Terminal emulator not found; {name} output → {log_file}")
-
-        return process  # ← the ONE real process the monitor watches
+            print(f"[Orchestrator] Terminal not found; {name} output -> {log_file}")
 
     def _monitor_processes(self):
-        """Monitor processes and restart crashed ones."""
         while self.running:
             time.sleep(2)
-            # Iterate over a snapshot to avoid holding the lock during sleep
             with self._lock:
                 items = list(self.process_configs.items())
 
@@ -160,10 +177,7 @@ class ProcessManager:
                 if process.poll() is not None:
                     exit_code = process.returncode
                     if config.restart and self.running:
-                        print(
-                            f"[Orchestrator] {name} exited (code {exit_code}), "
-                            f"restarting in 2 s..."
-                        )
+                        print(f"[Orchestrator] {name} exited (code {exit_code}), restarting in 2s...")
                         time.sleep(2)
                         if self.running:
                             self._start_process(name, config)
@@ -172,7 +186,6 @@ class ProcessManager:
 
     def stop_all(self):
         self.running = False
-
         with self._lock:
             items = list(self.processes.items())
 
@@ -187,28 +200,35 @@ class ProcessManager:
             except Exception as e:
                 print(f"[Orchestrator] Error stopping {name}: {e}")
 
-        self._cleanup_pipe()
+        for lf in self._log_files.values():
+            try:
+                lf.close()
+            except Exception:
+                pass
+        self._log_files.clear()
+
+        # On Windows the receiver holds the data file open until its process
+        # fully exits.  Wait up to 3 s for all processes to release it.
+        for _ in range(6):
+            try:
+                if os.path.exists(self.pipe_path):
+                    os.remove(self.pipe_path)
+                    print("[Orchestrator] Cleaned up data file.")
+                break
+            except PermissionError:
+                time.sleep(0.5)
+        else:
+            print("[Orchestrator] Could not delete data file (still locked) — will be cleaned up on next start.")
+
         print("[Orchestrator] All processes stopped.")
 
-    def _cleanup_pipe(self):
-        try:
-            if os.path.exists(self.pipe_path):
-                os.remove(self.pipe_path)
-                print("[Orchestrator] Cleaned up named pipe.")
-        except Exception as e:
-            print(f"[Orchestrator] Error cleaning up pipe: {e}", file=sys.stderr)
-
-
-# ──────────────────────────────────────────────────────────────
-#  CLI
-# ──────────────────────────────────────────────────────────────
 
 def parse_arguments(args=None):
     parser = argparse.ArgumentParser(
         description="Orchestrate sensor receiver and interpreter processes"
     )
     parser.add_argument("--verbose", "-v", action="store_true",
-                        help="Open terminal windows showing live output")
+                        help="Open console windows for all processes")
     parser.add_argument("--log", "-l", action="store_true",
                         help="Log output to logs/<name>.log")
     return parser.parse_args(args)
@@ -216,8 +236,8 @@ def parse_arguments(args=None):
 
 def main():
     args = parse_arguments()
-
     base_dir = os.path.dirname(os.path.abspath(__file__))
+    pipe_path = os.path.join(tempfile.gettempdir(), "sensor_data")
 
     processes = [
         ProcessConfig(
@@ -230,13 +250,13 @@ def main():
         ProcessConfig(
             name="interpreter",
             script=os.path.join(base_dir, "interpreter.py"),
-            args=["/tmp/sensor_data", "--follow"],
+            args=[pipe_path, "--follow"],
             console=True,
             restart=True,
         ),
     ]
 
-    manager = ProcessManager(verbose=args.verbose, log_output=args.log)
+    manager = ProcessManager(verbose=args.verbose, log_output=args.log, pipe_path=pipe_path)
     for config in processes:
         manager.register_process(config)
 
