@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -94,6 +93,7 @@ class SensorLogger {
   }
 
   void _startSensors(int hz, {required bool websocket}) {
+    // Sample sensors at 2× target Hz so each timer tick always has fresh data
     final sensorPeriod = Duration(milliseconds: (1000 / (hz * 2)).round());
 
     _accelSub = accelerometerEventStream(samplingPeriod: sensorPeriod)
@@ -129,7 +129,7 @@ class SensorLogger {
   }
 }
 
-/// Istanza globale del logger
+/// Global sensor logger instance
 final SensorLogger sensorLogger = SensorLogger();
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
