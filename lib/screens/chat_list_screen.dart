@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import 'chat_screen.dart';
 import '../theme/app_colors.dart';
 import '../widgets/whats_new_sheet.dart';
+import '../widgets/sensor_sheet.dart';
 
 String _formatChatDate(DateTime date) {
   final now = DateTime.now();
@@ -94,6 +95,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
           ),
           Row(
             children: [
+              IconButton(
+                icon: const Icon(Icons.sensors, color: Colors.white),
+                tooltip: 'Sensors',
+                onPressed: () => SensorSheet.show(context),
+              ),
               IconButton(
                 icon: const Icon(Icons.new_releases_outlined, color: Colors.white),
                 tooltip: "What's New",
@@ -216,8 +222,16 @@ class _ChatListScreenState extends State<ChatListScreen> {
             displayTime = _formatChatDate(rawTimestamp.toDate());
           }
           final msgType = msgData['type'] as String?;
+          final oneTime = msgData['oneTime'] as bool? ?? false;
+          final viewedOnce = msgData['viewedOnce'] as bool? ?? false;
           if (msgType == 'image') {
-            lastMessagePreview = '📷 Photo';
+            if (oneTime && viewedOnce && msgData['senderId'] != currentUserId) {
+              lastMessagePreview = '📷 One-time (viewed)';
+            } else if (oneTime) {
+              lastMessagePreview = '📷 One-time photo';
+            } else {
+              lastMessagePreview = '📷 Photo';
+            }
           } else {
             lastMessagePreview = msgData['text'] as String? ?? '';
           }

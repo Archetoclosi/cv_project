@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'firebase_options.dart';
 import 'screens/auth_screen.dart';
@@ -10,37 +10,130 @@ import 'screens/chat_list_screen.dart';
 import 'screens/chat_screen.dart';
 import 'theme/app_colors.dart';
 
-/// LOGGER GIROSCOPIO (servizio semplice)
+enum SensorConnectionState { disconnected, connecting, connected, failed }
+
 class SensorLogger {
-  StreamSubscription<GyroscopeEvent>? _sub;
-  DateTime _last = DateTime.fromMillisecondsSinceEpoch(0);
+  StreamSubscription<AccelerometerEvent>? _accelSub;
+  StreamSubscription<GyroscopeEvent>? _gyroSub;
+  StreamSubscription<MagnetometerEvent>? _magSub;
+  Timer? _timer;
+  WebSocketChannel? _ws;
 
-  void start({int hz = 25}) {
-    final minIntervalMs = (1000 / hz).round();
+  AccelerometerEvent? _accel;
+  GyroscopeEvent? _gyro;
+  MagnetometerEvent? _mag;
 
-    _sub = gyroscopeEvents.listen((e) {
-      final now = DateTime.now();
-      if (now.difference(_last).inMilliseconds < minIntervalMs) return;
-      _last = now;
+  final connectionState =
+      ValueNotifier<SensorConnectionState>(SensorConnectionState.disconnected);
 
-      debugPrint(
-        'GYRO ts=${now.toIso8601String()} '
-        'x=${e.x.toStringAsFixed(4)} '
-        'y=${e.y.toStringAsFixed(4)} '
-        'z=${e.z.toStringAsFixed(4)} rad/s',
+  bool get isRunning => _timer != null;
+
+  /// Start in debug (print) mode. Only meaningful in debug builds.
+  void startDebug({int hz = 5}) {
+    if (isRunning ||
+        connectionState.value == SensorConnectionState.connecting ||
+        connectionState.value == SensorConnectionState.connected) {
+      return;
+    }
+    connectionState.value = SensorConnectionState.connected;
+    _startSensors(hz, websocket: false);
+  }
+
+  /// Connect via WebSocket, then start sensors on success.
+  Future<void> connect({required String wsUrl, int hz = 5}) async {
+    if (connectionState.value == SensorConnectionState.connecting ||
+        connectionState.value == SensorConnectionState.connected) {
+      return;
+    }
+    connectionState.value = SensorConnectionState.connecting;
+    try {
+      _ws = WebSocketChannel.connect(Uri.parse(wsUrl));
+      await _ws!.ready;
+      // Listen for runtime disconnects
+      _ws!.stream.listen(
+        (_) {},
+        onError: (_) {
+          connectionState.value = SensorConnectionState.failed;
+          _ws = null;
+          _stopTimerAndSensors();
+        },
+        onDone: () {
+          if (connectionState.value == SensorConnectionState.connected) {
+            connectionState.value = SensorConnectionState.disconnected;
+          }
+          _ws = null;
+          _stopTimerAndSensors();
+        },
+        cancelOnError: true,
       );
-    }, onError: (err) {
-      debugPrint('Gyro error: $err');
-    });
+      connectionState.value = SensorConnectionState.connected;
+      _startSensors(hz, websocket: true);
+    } catch (e) {
+      debugPrint('WS connect error: $e');
+      _ws = null;
+      connectionState.value = SensorConnectionState.failed;
+    }
   }
 
   Future<void> stop() async {
-    await _sub?.cancel();
-    _sub = null;
+    connectionState.value = SensorConnectionState.disconnected;
+    _stopTimerAndSensors();
+    await _ws?.sink.close();
+    _ws = null;
+  }
+
+  void _stopTimerAndSensors() {
+    _timer?.cancel();
+    _timer = null;
+    _accelSub?.cancel();
+    _gyroSub?.cancel();
+    _magSub?.cancel();
+    _accelSub = null;
+    _gyroSub = null;
+    _magSub = null;
+    _accel = null;
+    _gyro = null;
+    _mag = null;
+  }
+
+  void _startSensors(int hz, {required bool websocket}) {
+    // Sample sensors at 2× target Hz so each timer tick always has fresh data
+    final sensorPeriod = Duration(milliseconds: (1000 / (hz * 2)).round());
+
+    _accelSub = accelerometerEventStream(samplingPeriod: sensorPeriod)
+        .listen((e) => _accel = e, onError: (e) => debugPrint('Accel error: $e'));
+    _gyroSub = gyroscopeEventStream(samplingPeriod: sensorPeriod)
+        .listen((e) => _gyro = e, onError: (e) => debugPrint('Gyro error: $e'));
+    _magSub = magnetometerEventStream(samplingPeriod: sensorPeriod)
+        .listen((e) => _mag = e, onError: (e) => debugPrint('Mag error: $e'));
+
+    _timer = Timer.periodic(Duration(milliseconds: (1000 / hz).round()), (_) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final a = _accel;
+      final g = _gyro;
+      final m = _mag;
+
+      final line = 'SENSOR|$now'
+          '|A:${a != null ? '${a.x.toStringAsFixed(2)},${a.y.toStringAsFixed(2)},${a.z.toStringAsFixed(2)}' : ',,'}'
+          '|G:${g != null ? '${g.x.toStringAsFixed(2)},${g.y.toStringAsFixed(2)},${g.z.toStringAsFixed(2)}' : ',,'}'
+          '|M:${m != null ? '${m.x.toStringAsFixed(2)},${m.y.toStringAsFixed(2)},${m.z.toStringAsFixed(2)}' : ',,'}';
+
+      if (websocket && _ws != null) {
+        try {
+          _ws!.sink.add(line);
+        } catch (_) {
+          connectionState.value = SensorConnectionState.failed;
+          _ws = null;
+          Future.microtask(_stopTimerAndSensors);
+        }
+      } else {
+        debugPrint(line);
+      }
+    });
   }
 }
 
-/// Istanza globale del logger
+/// Global sensor logger instance
 final SensorLogger sensorLogger = SensorLogger();
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -51,9 +144,6 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-
-  /// Avvio logger giroscopio
-  //sensorLogger.start(hz: 25);
 
   runApp(const MyApp());
 }
