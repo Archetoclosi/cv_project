@@ -8,6 +8,7 @@ import '../services/chat_service.dart';
 import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/flicker_shield.dart';
+import '../widgets/rolling_shutter_shield.dart';
 
 class ChatScreen extends StatefulWidget {
   final String contactName;
@@ -34,6 +35,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final String _myId = AuthService().currentUser?.uid ?? 'anonimo';
   StreamSubscription<int>? _unreadSub;
   late final Stream<QuerySnapshot> _messagesStream;
+  bool _rollingShutterEnabled = false;
 
   @override
   void initState() {
@@ -103,17 +105,20 @@ class _ChatScreenState extends State<ChatScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       resizeToAvoidBottomInset: false,
-      body: Container(
-        decoration: const BoxDecoration(
-          image: DecorationImage(
-            image: AssetImage('assets/background/bgdark.png'),
-            fit: BoxFit.cover,
+      body: RollingShutterShield(
+        enabled: _rollingShutterEnabled,
+        aggressiveness: RollingShutterAggressiveness.medium,
+        child: Container(
+          decoration: const BoxDecoration(
+            image: DecorationImage(
+              image: AssetImage('assets/background/bgdark.png'),
+              fit: BoxFit.cover,
+            ),
           ),
-        ),
-        child: Column(
-          children: [
-            _buildAppBar(context),
-            Expanded(
+          child: Column(
+            children: [
+              _buildAppBar(context),
+              Expanded(
               child: StreamBuilder<QuerySnapshot>(
                 stream: _messagesStream,
                 builder: (context, snapshot) {
@@ -245,6 +250,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
       ),
+      ),
     );
   }
 
@@ -292,9 +298,26 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
             ),
-            IconButton(
+            PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert, color: Colors.white),
-              onPressed: () {},
+              color: Colors.black.withValues(alpha: 0.85),
+              onSelected: (value) {
+                if (value == 'rolling_shutter') {
+                  setState(() {
+                    _rollingShutterEnabled = !_rollingShutterEnabled;
+                  });
+                }
+              },
+              itemBuilder: (context) => [
+                CheckedPopupMenuItem<String>(
+                  value: 'rolling_shutter',
+                  checked: _rollingShutterEnabled,
+                  child: const Text(
+                    'Rolling Shutter',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
