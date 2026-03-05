@@ -19,6 +19,7 @@ class ChatService {
     String senderId,
     Uint8List imageBytes, {
     bool oneTime = false,
+    bool sigillum = false,
   }) async {
     final cloudinary = CloudinaryService();
     final url = await cloudinary.uploadImage(imageBytes);
@@ -29,7 +30,8 @@ class ChatService {
       'imageUrl': url,
       'senderId': senderId,
       'type': 'image',
-      'oneTime': oneTime,
+      'oneTime': oneTime || sigillum,
+      'sigillum': sigillum,
       'viewedOnce': false,
       'timestamp': FieldValue.serverTimestamp(),
     });
