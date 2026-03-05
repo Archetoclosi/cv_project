@@ -77,20 +77,19 @@ class _FlickerShieldState extends State<FlickerShield>
       fit: StackFit.expand,
       children: [
         widget.child,
-        if (_showNoise)
-          RepaintBoundary(
-            child: Opacity(
-              opacity: _overlayOpacity,
-              child: CustomPaint(
-                painter: _NoisePainter(
-                  seed: _noiseSeeds[_currentVariant],
-                  cols: _gridCols,
-                  rows: _gridRows,
-                ),
-                size: Size.infinite,
+        RepaintBoundary(
+          child: Opacity(
+            opacity: _showNoise ? _overlayOpacity : 0.0,
+            child: CustomPaint(
+              painter: _NoisePainter(
+                seed: _noiseSeeds[_currentVariant],
+                cols: _gridCols,
+                rows: _gridRows,
               ),
+              size: Size.infinite,
             ),
           ),
+        ),
       ],
     );
   }
