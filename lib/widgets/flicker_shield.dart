@@ -21,7 +21,7 @@ class _FlickerShieldState extends State<FlickerShield>
   static const int _noiseVariants = 4;
   static const int _gridCols = 24;
   static const int _gridRows = 36;
-  static const double _overlayOpacity = 0.3;
+  static const double _overlayOpacity = 0.12;
   static const double _baseFrequencyHz = 60.0;
   static const double _frequencyJitterHz = 10.0;
   static const double _minFrequencyHz = 50.0;
