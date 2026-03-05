@@ -35,7 +35,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final String _myId = AuthService().currentUser?.uid ?? 'anonimo';
   StreamSubscription<int>? _unreadSub;
   late final Stream<QuerySnapshot> _messagesStream;
-  bool _rollingShutterEnabled = false;
+  final bool _rollingShutterEnabled = false;
 
   @override
   void initState() {
@@ -298,26 +298,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
             ),
-            PopupMenuButton<String>(
+            IconButton(
               icon: const Icon(Icons.more_vert, color: Colors.white),
-              color: Colors.black.withValues(alpha: 0.85),
-              onSelected: (value) {
-                if (value == 'rolling_shutter') {
-                  setState(() {
-                    _rollingShutterEnabled = !_rollingShutterEnabled;
-                  });
-                }
-              },
-              itemBuilder: (context) => [
-                CheckedPopupMenuItem<String>(
-                  value: 'rolling_shutter',
-                  checked: _rollingShutterEnabled,
-                  child: const Text(
-                    'Rolling Shutter',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                ),
-              ],
+              onPressed: () {},
             ),
           ],
         ),
@@ -714,17 +697,40 @@ class _ChatScreenState extends State<ChatScreen> {
                           },
                         ),
                         ListTile(
-                          leading: const Text(
+                          enabled: false,
+                          leading: Text(
                             '\u{1F441}',
-                            style: TextStyle(fontSize: 24),
+                            style: TextStyle(
+                              fontSize: 24,
+                              color: Colors.white.withValues(alpha: 0.3),
+                            ),
                           ),
-                          title: const Text(
+                          title: Text(
                             'Invia foto con Sigillum',
-                            style: TextStyle(color: Colors.white),
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.3),
+                            ),
                           ),
                           onTap: () {
                             Navigator.pop(context);
                             _pickAndSendImage(oneTime: false, sigillum: true);
+                          },
+                        ),
+                        ListTile(
+                          enabled: false,
+                          leading: Icon(
+                            Icons.blinds,
+                            color: Colors.white.withValues(alpha: 0.3),
+                          ),
+                          title: Text(
+                            'Rolling Shutter',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          onTap: () {
+                            Navigator.pop(context);
+                            setState(() {});
                           },
                         ),
                       ],
