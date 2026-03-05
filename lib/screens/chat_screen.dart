@@ -6,8 +6,8 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../services/chat_service.dart';
 import '../services/auth_service.dart';
-import '../services/protected_photo_view.dart';
 import '../theme/app_colors.dart';
+import '../widgets/flicker_shield.dart';
 
 class ChatScreen extends StatefulWidget {
   final String contactName;
@@ -62,7 +62,10 @@ class _ChatScreenState extends State<ChatScreen> {
     _controller.clear();
   }
 
-  Future<void> _pickAndSendImage({required bool oneTime}) async {
+  Future<void> _pickAndSendImage({
+    required bool oneTime,
+    bool sigillum = false,
+  }) async {
     final picker = ImagePicker();
     final picked = await picker.pickImage(
       source: ImageSource.gallery,
@@ -80,6 +83,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _myId,
         bytes,
         oneTime: oneTime,
+        sigillum: sigillum,
       );
     } catch (e) {
       debugPrint('Errore invio immagine: $e');
@@ -447,6 +451,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final imageUrl = data['imageUrl'] as String?;
     final oneTime = data['oneTime'] as bool? ?? false;
     final viewedOnce = data['viewedOnce'] as bool? ?? false;
+    final sigillum = data['sigillum'] as bool? ?? false;
 
     if (imageUrl == null || imageUrl.isEmpty) {
       return _buildImagePlaceholder(
@@ -457,31 +462,23 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
 
-    // ONE-TIME LOGIC:
-    // - Mittente: non può rivedere la foto (mai), vede solo placeholder.
-    // - Destinatario, non ancora vista: placeholder tappabile che apre il full screen.
-    // - Destinatario, già vista: placeholder "visualizzata".
-    if (oneTime) {
-      // Già vista dal destinatario (mittente o destinatario).
+    if (oneTime || sigillum) {
       if (viewedOnce) {
         return _buildImagePlaceholder(
           isMe,
           time,
           showTimestamp,
-          label: 'Foto one time visualizzata',
-          icon: Icons.lock,
+          label: sigillum ? 'Foto Sigillum visualizzata' : 'Foto one time visualizzata',
+          icon: sigillum ? Icons.visibility : Icons.lock,
         );
       }
 
-      // Non ancora vista:
-      // - Mittente: solo placeholder non tappabile.
-      // - Destinatario: placeholder tappabile che apre il full screen.
       final placeholder = _buildImagePlaceholder(
         isMe,
         time,
         showTimestamp,
-        label: 'Foto one time',
-        icon: Icons.lock,
+        label: sigillum ? '\u{1F441} Foto Sigillum' : 'Foto one time',
+        icon: sigillum ? Icons.visibility : Icons.lock,
       );
 
       if (isMe) {
@@ -497,8 +494,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 imageUrl: imageUrl,
                 chatId: widget.chatId,
                 messageId: messageId,
-                oneTime: oneTime,
+                oneTime: true,
                 isMe: isMe,
+                sigillum: sigillum,
               ),
             ),
           );
@@ -692,6 +690,20 @@ class _ChatScreenState extends State<ChatScreen> {
                             _pickAndSendImage(oneTime: true);
                           },
                         ),
+                        ListTile(
+                          leading: const Text(
+                            '\u{1F441}',
+                            style: TextStyle(fontSize: 24),
+                          ),
+                          title: const Text(
+                            'Invia foto con Sigillum',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          onTap: () {
+                            Navigator.pop(context);
+                            _pickAndSendImage(oneTime: false, sigillum: true);
+                          },
+                        ),
                       ],
                     ),
                   );
@@ -744,6 +756,7 @@ class FullScreenImage extends StatefulWidget {
   final String messageId;
   final bool oneTime;
   final bool isMe;
+  final bool sigillum;
 
   const FullScreenImage({
     super.key,
@@ -752,6 +765,7 @@ class FullScreenImage extends StatefulWidget {
     required this.messageId,
     required this.oneTime,
     required this.isMe,
+    this.sigillum = false,
   });
 
   @override
@@ -776,8 +790,8 @@ class _FullScreenImageState extends State<FullScreenImage> {
   Widget build(BuildContext context) {
     Widget content = Center(child: Image.network(widget.imageUrl));
 
-    if (widget.oneTime && !widget.isMe) {
-      content = ProtectedPhotoView(child: content);
+    if (widget.sigillum) {
+      content = FlickerShield(child: content);
     }
 
     return Scaffold(
@@ -788,7 +802,7 @@ class _FullScreenImageState extends State<FullScreenImage> {
       ),
       body: InteractiveViewer(
         panEnabled: true,
-        boundaryMargin: EdgeInsets.zero, // niente trascinamento infinito
+        boundaryMargin: EdgeInsets.zero,
         minScale: 1.0,
         maxScale: 4.0,
         clipBehavior: Clip.hardEdge,
