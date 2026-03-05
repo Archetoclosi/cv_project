@@ -50,3 +50,8 @@ app.*.map.json
 # Logs directory
 logs/*.log
 !logs/.gitkeep
+
+tools/ml_training/.venv/
+tools/ml_training/*.mlmodel
+tools/ml_training/*.joblib
+tools/ml_training/__pycache__/

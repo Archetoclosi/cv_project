@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
@@ -9,6 +10,9 @@ import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/flicker_shield.dart';
 import '../widgets/rolling_shutter_shield.dart';
+
+import '../services/protected_photo_view_with_collection.dart';
+import '../services/risk_engine/feature_vector.dart';
 
 class ChatScreen extends StatefulWidget {
   final String contactName;
@@ -119,137 +123,137 @@ class _ChatScreenState extends State<ChatScreen> {
             children: [
               _buildAppBar(context),
               Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: _messagesStream,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(color: Colors.white),
-                    );
-                  }
-                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                    return Center(
-                      child: Text(
-                        'Nessun messaggio',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.5),
-                        ),
-                      ),
-                    );
-                  }
-
-                  final messages = snapshot.data!.docs;
-
-                  if (messages.length > _lastKnownMessageCount) {
-                    final isNewMessage = _lastKnownMessageCount > 0;
-                    _lastKnownMessageCount = messages.length;
-                    if (isNewMessage) {
-                      final newDummyIndex = messages.length;
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (_itemScrollController.isAttached) {
-                          _itemScrollController.jumpTo(
-                            index: newDummyIndex,
-                            alignment: 1.0,
-                          );
-                        }
-                      });
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: _messagesStream,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      );
                     }
-                  }
+                    if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                      return Center(
+                        child: Text(
+                          'Nessun messaggio',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.5),
+                          ),
+                        ),
+                      );
+                    }
 
-                  return ScrollablePositionedList.builder(
-                    itemCount: messages.length + 1,
-                    initialScrollIndex: messages.length,
-                    initialAlignment: 1.0,
-                    itemScrollController: _itemScrollController,
-                    padding: const EdgeInsets.only(
-                      left: 16,
-                      right: 16,
-                      top: 12,
-                    ),
-                    itemBuilder: (context, index) {
-                      if (index == messages.length)
-                        return const SizedBox.shrink();
-                      final doc = messages[index];
-                      final data = doc.data() as Map<String, dynamic>;
-                      final messageId = doc.id;
-                      final isMe = data['senderId'] == _myId;
-                      final type = data['type'] as String? ?? 'text';
-                      final timestamp = data['timestamp'] as Timestamp?;
-                      final time = timestamp != null
-                          ? _formatTime24Hour(timestamp.toDate())
-                          : '';
+                    final messages = snapshot.data!.docs;
 
-                      const showTimestamp = true;
+                    if (messages.length > _lastKnownMessageCount) {
+                      final isNewMessage = _lastKnownMessageCount > 0;
+                      _lastKnownMessageCount = messages.length;
+                      if (isNewMessage) {
+                        final newDummyIndex = messages.length;
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (_itemScrollController.isAttached) {
+                            _itemScrollController.jumpTo(
+                              index: newDummyIndex,
+                              alignment: 1.0,
+                            );
+                          }
+                        });
+                      }
+                    }
 
-                      Widget? dateSeparator;
-                      if (timestamp != null) {
-                        final messageDate = timestamp.toDate();
-                        bool showSeparator = false;
-                        if (index == 0) {
-                          showSeparator = true;
-                        } else {
-                          final prevData =
-                              messages[index - 1].data()
-                                  as Map<String, dynamic>;
-                          final prevTimestamp =
-                              prevData['timestamp'] as Timestamp?;
-                          if (prevTimestamp != null) {
-                            final prevDate = prevTimestamp.toDate();
-                            if (DateTime(
-                                  messageDate.year,
-                                  messageDate.month,
-                                  messageDate.day,
-                                ) !=
-                                DateTime(
-                                  prevDate.year,
-                                  prevDate.month,
-                                  prevDate.day,
-                                )) {
-                              showSeparator = true;
+                    return ScrollablePositionedList.builder(
+                      itemCount: messages.length + 1,
+                      initialScrollIndex: messages.length,
+                      initialAlignment: 1.0,
+                      itemScrollController: _itemScrollController,
+                      padding: const EdgeInsets.only(
+                        left: 16,
+                        right: 16,
+                        top: 12,
+                      ),
+                      itemBuilder: (context, index) {
+                        if (index == messages.length)
+                          return const SizedBox.shrink();
+                        final doc = messages[index];
+                        final data = doc.data() as Map<String, dynamic>;
+                        final messageId = doc.id;
+                        final isMe = data['senderId'] == _myId;
+                        final type = data['type'] as String? ?? 'text';
+                        final timestamp = data['timestamp'] as Timestamp?;
+                        final time = timestamp != null
+                            ? _formatTime24Hour(timestamp.toDate())
+                            : '';
+
+                        const showTimestamp = true;
+
+                        Widget? dateSeparator;
+                        if (timestamp != null) {
+                          final messageDate = timestamp.toDate();
+                          bool showSeparator = false;
+                          if (index == 0) {
+                            showSeparator = true;
+                          } else {
+                            final prevData =
+                                messages[index - 1].data()
+                                    as Map<String, dynamic>;
+                            final prevTimestamp =
+                                prevData['timestamp'] as Timestamp?;
+                            if (prevTimestamp != null) {
+                              final prevDate = prevTimestamp.toDate();
+                              if (DateTime(
+                                    messageDate.year,
+                                    messageDate.month,
+                                    messageDate.day,
+                                  ) !=
+                                  DateTime(
+                                    prevDate.year,
+                                    prevDate.month,
+                                    prevDate.day,
+                                  )) {
+                                showSeparator = true;
+                              }
                             }
                           }
+                          if (showSeparator) {
+                            dateSeparator = _buildDateSeparator(messageDate);
+                          }
                         }
-                        if (showSeparator) {
-                          dateSeparator = _buildDateSeparator(messageDate);
-                        }
-                      }
 
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (dateSeparator != null) dateSeparator,
-                          _buildMessageBubble(
-                            context: context,
-                            data: data,
-                            messageId: messageId,
-                            isMe: isMe,
-                            type: type,
-                            time: time,
-                            showTimestamp: showTimestamp,
-                          ),
-                          if (index == messages.length - 1)
-                            const SizedBox(height: 8),
-                        ],
-                      );
-                    },
-                  );
-                },
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (dateSeparator != null) dateSeparator,
+                            _buildMessageBubble(
+                              context: context,
+                              data: data,
+                              messageId: messageId,
+                              isMe: isMe,
+                              type: type,
+                              time: time,
+                              showTimestamp: showTimestamp,
+                            ),
+                            if (index == messages.length - 1)
+                              const SizedBox(height: 8),
+                          ],
+                        );
+                      },
+                    );
+                  },
+                ),
               ),
-            ),
-            if (_isUploadingImage)
-              LinearProgressIndicator(
-                backgroundColor: Colors.white.withValues(alpha: 0.1),
-                color: AppColors.primary,
+              if (_isUploadingImage)
+                LinearProgressIndicator(
+                  backgroundColor: Colors.white.withValues(alpha: 0.1),
+                  color: AppColors.primary,
+                ),
+              Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom,
+                ),
+                child: _buildInputBar(),
               ),
-            Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom,
-              ),
-              child: _buildInputBar(),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -474,7 +478,9 @@ class _ChatScreenState extends State<ChatScreen> {
           isMe,
           time,
           showTimestamp,
-          label: sigillum ? 'Foto Sigillum visualizzata' : 'Foto one time visualizzata',
+          label: sigillum
+              ? 'Foto Sigillum visualizzata'
+              : 'Foto one time visualizzata',
           icon: sigillum ? Icons.visibility : Icons.lock,
         );
       }
@@ -804,6 +810,11 @@ class FullScreenImage extends StatefulWidget {
 class _FullScreenImageState extends State<FullScreenImage> {
   bool _markedViewed = false;
 
+  late final Stream<FeatureVector> _featureStream = Stream.periodic(
+    const Duration(seconds: 1),
+    (_) => FeatureVector.zero(),
+  );
+
   @override
   void dispose() {
     if (widget.oneTime && !widget.isMe && !_markedViewed) {
@@ -823,6 +834,12 @@ class _FullScreenImageState extends State<FullScreenImage> {
       content = FlickerShield(child: content);
     }
 
+    // Wrap con collection (debug) o protezione semplice (release)
+    final protected = ProtectedPhotoViewWithCollection(
+      featureStream: _featureStream,
+      child: content,
+    );
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -835,7 +852,7 @@ class _FullScreenImageState extends State<FullScreenImage> {
         minScale: 1.0,
         maxScale: 4.0,
         clipBehavior: Clip.hardEdge,
-        child: Center(child: content),
+        child: Center(child: protected),
       ),
     );
   }

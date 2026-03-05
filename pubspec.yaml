@@ -46,6 +46,8 @@ dependencies:
   shared_preferences: ^2.3.0
   package_info_plus: ^8.0.0
   web_socket_channel: ^3.0.3
+  share_plus: ^7.2.1      # per il bottone export → Files / AirDrop / Mail
+  path_provider: ^2.1.2   # probabilmente ce l'hai già
 
 dev_dependencies:
   flutter_test:

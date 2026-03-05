@@ -1,0 +1,18 @@
+# Risk Engine — Training Environment
+# Tested with Python 3.10 / 3.11
+#
+# Setup:
+#   python -m venv .venv
+#   source .venv/bin/activate        # macOS/Linux
+#   pip install -r requirements.txt
+
+scikit-learn==1.4.2
+pandas==2.2.2
+numpy==1.26.4
+coremltools==7.2
+joblib==1.4.2
+
+# Opzionali — per visualizzazione e analisi del dataset
+# matplotlib==3.9.0
+# seaborn==0.13.2
+# jupyter==1.0.0
