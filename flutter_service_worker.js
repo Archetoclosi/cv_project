@@ -3,9 +3,6 @@
 self.addEventListener('install', () => {
   self.skipWaiting();
 });
-self.addEventListener('activate', (event) => {
-  event.waitUntil(clients.claim()); // prende controllo di tutte le tab aperte
-});
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
